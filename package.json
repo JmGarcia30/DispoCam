@@ -1,0 +1,32 @@
+{
+  "name": "dispocam",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "cloudinary": "^2.7.0",
+    "idb": "^8.0.3",
+    "next": "^16.3.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.6",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "eslint": "^9.36.0",
+    "eslint-config-next": "^16.3.7",
+    "fake-indexeddb": "^6.2.4",
+    "typescript": "^5.9.2",
+    "vitest": "^5.0.2"
+  }
+}

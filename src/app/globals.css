@@ -1,0 +1,277 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  --font-serif: "Cormorant Garamond", "Playfair Display", "Didot", "Bodoni MT", "Georgia", serif;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Space Mono", "SF Mono", "Courier New", ui-monospace, monospace;
+
+  /* Wedding palette */
+  --wedding-bg: #151412;
+  --wedding-card: #FDFBF7;
+  --wedding-card-cream: #F5EFEB;
+  --wedding-text-primary: #211E1A;
+  --wedding-text-muted: #6B655E;
+  --wedding-accent: #C3996B;
+  --wedding-accent-hover: #D5AF85;
+  --wedding-accent-light: #EFE6D9;
+  --wedding-gold-border: rgba(195, 153, 107, 0.4);
+
+  /* Camera physical styling */
+  --camera-casing: #22211F;
+  --camera-casing-subtle: #2A2825;
+  --camera-casing-deep: #161514;
+  --camera-rim: #3D3B37;
+  --camera-lens-border: #141312;
+  --camera-shutter: #D6392E;
+  --camera-shutter-press: #B0251B;
+  --camera-metal: #85827C;
+  --camera-metal-light: #C2BFB8;
+
+  /* LCD / mechanical frame counter */
+  --counter-bg: #11140E;
+  --counter-border: #2B2E27;
+  --counter-amber: #F2A33A;
+  --counter-amber-glow: rgba(242, 163, 58, 0.28);
+  --counter-amber-dim: #4B3314;
+  --counter-last-shot: #FF4D36;
+
+  /* Safe areas for mobile */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  background-color: var(--wedding-bg);
+  color: #ECE8E1;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Texture pattern simulating camera casing grip */
+.camera-grip-texture {
+  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.04) 1px, transparent 0);
+  background-size: 4px 4px;
+}
+
+/* Subtle paper grain texture for wedding keepsake */
+.keepsake-paper-texture {
+  background-color: var(--wedding-card);
+  background-image: 
+    radial-gradient(ellipse at 50% 0%, rgba(195, 153, 107, 0.08) 0%, transparent 60%),
+    radial-gradient(circle at 10% 90%, rgba(195, 153, 107, 0.06) 0%, transparent 50%),
+    linear-gradient(180deg, #FFFFFF 0%, #FAF6EE 100%);
+}
+
+/* Mechanical shutter button */
+.shutter-button {
+  position: relative;
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #E84C3F 0%, var(--camera-shutter) 60%, var(--camera-shutter-press) 100%);
+  border: 4px solid #1A1918;
+  box-shadow: 
+    0 0 0 3px var(--camera-rim),
+    0 0 0 5px #151413,
+    0 10px 22px rgba(0, 0, 0, 0.65),
+    inset 0 2px 4px rgba(255, 255, 255, 0.35),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  transition: transform 0.08s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.08s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+}
+
+.shutter-button:focus-visible {
+  box-shadow: 
+    0 0 0 3px var(--wedding-accent),
+    0 0 0 6px #151413,
+    0 10px 24px rgba(0, 0, 0, 0.75);
+}
+
+.shutter-button:active:not(:disabled) {
+  transform: scale(0.93) translateY(3px);
+  background: radial-gradient(circle at 50% 50%, var(--camera-shutter-press) 0%, #8C1C13 100%);
+  box-shadow: 
+    0 0 0 3px var(--camera-rim),
+    0 0 0 5px #151413,
+    0 3px 8px rgba(0, 0, 0, 0.8),
+    inset 0 3px 6px rgba(0, 0, 0, 0.65);
+}
+
+.shutter-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+  transform: none;
+}
+
+/* Shutter inner concentric grooves */
+.shutter-inner-ring {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+/* Frame counter window (retro LCD style) */
+.frame-counter-box {
+  background-color: var(--counter-bg);
+  border: 2px solid var(--counter-border);
+  box-shadow: 
+    inset 0 2px 5px rgba(0, 0, 0, 0.9),
+    0 1px 1px rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-family: var(--font-mono);
+  color: var(--counter-amber);
+  text-shadow: 0 0 6px var(--counter-amber-glow);
+  letter-spacing: 0.08em;
+  display: inline-flex;
+  align-items: baseline;
+  user-select: none;
+}
+
+.frame-counter-box.warning {
+  color: var(--counter-last-shot);
+  text-shadow: 0 0 8px rgba(255, 77, 54, 0.5);
+}
+
+/* Viewfinder housing */
+.viewfinder-housing {
+  position: relative;
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background-color: #0C0B0A;
+  border: 3px solid #141312;
+  box-shadow: 
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 0 20px rgba(0, 0, 0, 0.8),
+    0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* Viewfinder optical reticle overlay */
+.viewfinder-reticle {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Corner framing marks */
+.reticle-corner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-color: rgba(255, 255, 255, 0.7);
+  pointer-events: none;
+}
+.reticle-corner-tl { top: 16px; left: 16px; border-top: 2px solid; border-left: 2px solid; }
+.reticle-corner-tr { top: 16px; right: 16px; border-top: 2px solid; border-right: 2px solid; }
+.reticle-corner-bl { bottom: 16px; left: 16px; border-bottom: 2px solid; border-left: 2px solid; }
+.reticle-corner-br { bottom: 16px; right: 16px; border-bottom: 2px solid; border-right: 2px solid; }
+
+/* Center focus crosshair */
+.reticle-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+.reticle-center::before, .reticle-center::after {
+  content: "";
+  position: absolute;
+  background-color: rgba(255, 255, 255, 0.65);
+}
+.reticle-center::before {
+  top: 10px;
+  left: 2px;
+  width: 18px;
+  height: 1.5px;
+}
+.reticle-center::after {
+  top: 2px;
+  left: 10px;
+  width: 1.5px;
+  height: 18px;
+}
+
+/* Mechanical shutter blade blink animation */
+@keyframes shutterBlink {
+  0% { opacity: 0; }
+  25% { opacity: 1; }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.shutter-blade-flash {
+  position: absolute;
+  inset: 0;
+  background-color: #000000;
+  z-index: 40;
+  pointer-events: none;
+  animation: shutterBlink 0.16s ease-in-out forwards;
+}
+
+/* Simulated vintage camera flash burst */
+@keyframes opticalFlash {
+  0% { opacity: 0; }
+  15% { opacity: 0.95; }
+  40% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
+.screen-flash-burst {
+  position: fixed;
+  inset: 0;
+  background-color: #FFFFFF;
+  z-index: 100;
+  pointer-events: none;
+  animation: opticalFlash 0.38s cubic-bezier(0.1, 0.9, 0.2, 1) forwards;
+}
+
+/* Captured confirmation toast */
+@keyframes toastPop {
+  0% { transform: translateY(12px) scale(0.92); opacity: 0; }
+  20% { transform: translateY(0) scale(1); opacity: 1; }
+  75% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-8px) scale(0.96); opacity: 0; }
+}
+
+.captured-stamp {
+  animation: toastPop 1.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .shutter-blade-flash,
+  .screen-flash-burst,
+  .captured-stamp {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

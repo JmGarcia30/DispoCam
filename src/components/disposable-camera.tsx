@@ -1,0 +1,602 @@
+"use client";
+
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { CameraSession } from "@/lib/camera/capture";
+import { attachCamera, captureVideoFrame, openCamera } from "@/lib/camera/capture";
+import type { OfflineCameraSession } from "@/lib/offline/types";
+import { requestPhotoBackgroundSync } from "@/lib/pwa/service-worker";
+import { useOfflinePhotos } from "@/hooks/use-offline-photos";
+import { usePhotoSync } from "@/hooks/use-photo-sync";
+import { useNetworkStatus } from "@/hooks/use-network-status";
+import type { WeddingConfig } from "@/lib/wedding/config";
+import { SyncStatusBar } from "@/components/sync-status-bar";
+import { RollFinished } from "@/components/roll-finished";
+import { NeedsAttentionModal } from "@/components/needs-attention-modal";
+import { PwaInstallBanner } from "@/components/pwa-install-banner";
+import { ServiceWorkerUpdateBanner } from "@/components/service-worker-update-banner";
+import { CameraIcon, CheckIcon, FlashIcon, FlipCameraIcon } from "@/components/icons";
+
+interface DisposableCameraProps {
+  token: string | null;
+  session: OfflineCameraSession;
+  wedding: WeddingConfig;
+  offline: boolean;
+  onSessionUpdated: (session: OfflineCameraSession) => void;
+  onBackToPass?: () => void;
+}
+
+export function DisposableCamera({
+  token,
+  session,
+  wedding,
+  offline,
+  onSessionUpdated,
+  onBackToPass,
+}: DisposableCameraProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraRef = useRef<CameraSession | null>(null);
+
+  // States
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
+  const [flashMode, setFlashMode] = useState<"auto" | "on" | "off">("auto");
+  const [saving, setSaving] = useState(false);
+  const [isShutterBlinking, setIsShutterBlinking] = useState(false);
+  const [isFlashBursting, setIsFlashBursting] = useState(false);
+  const [capturedFeedback, setCapturedFeedback] = useState(false);
+  const [showAttentionModal, setShowAttentionModal] = useState(false);
+
+  const network = useNetworkStatus();
+  const photos = useOfflinePhotos(session.cameraPassId, session.serverRemainingShots);
+  const sync = usePhotoSync(session.cameraPassId, token);
+  const refreshedResultRef = useRef(sync.lastResult);
+
+  // Filter photos that need attention
+  const attentionPhotos = photos.photos.filter((p) => p.failureKind === "attention" || p.status === "failed");
+
+  // Keep server shot count refreshed when uploads finish
+  useEffect(() => {
+    if (!token || !sync.lastResult?.uploaded || refreshedResultRef.current === sync.lastResult) return;
+    refreshedResultRef.current = sync.lastResult;
+    let active = true;
+    void fetch(`/api/camera/${encodeURIComponent(token)}`, { cache: "no-store" })
+      .then(async (response) => (response.ok ? response.json() : undefined))
+      .then(async (payload) => {
+        if (!active || !payload?.data) return;
+        const updated: OfflineCameraSession = {
+          ...session,
+          serverRemainingShots: payload.data.shots_remaining,
+          resolvedAt: new Date().toISOString(),
+        };
+        onSessionUpdated(updated);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [onSessionUpdated, session, sync.lastResult, token]);
+
+  // Start or switch camera
+  const initCamera = useCallback(
+    async (mode: "environment" | "user") => {
+      try {
+        cameraRef.current?.stop();
+        const newSession = await openCamera(mode);
+        cameraRef.current = newSession;
+        if (videoRef.current) {
+          await attachCamera(videoRef.current, newSession.stream);
+        }
+        setCameraActive(true);
+        setCameraError(null);
+      } catch (error) {
+        setCameraError(error instanceof Error ? error.message : "Camera access failed.");
+        setCameraActive(false);
+      }
+    },
+    [],
+  );
+
+  // Auto-start camera on mount and when facing mode toggles
+  useEffect(() => {
+    let active = true;
+    const start = async () => {
+      try {
+        cameraRef.current?.stop();
+        const newSession = await openCamera(facingMode);
+        if (!active) {
+          newSession.stop();
+          return;
+        }
+        cameraRef.current = newSession;
+        if (videoRef.current) {
+          await attachCamera(videoRef.current, newSession.stream);
+        }
+        if (active) {
+          setCameraActive(true);
+          setCameraError(null);
+        }
+      } catch (error) {
+        if (!active) return;
+        setCameraError(error instanceof Error ? error.message : "Camera access failed.");
+        setCameraActive(false);
+      }
+    };
+    void start();
+    return () => {
+      active = false;
+      cameraRef.current?.stop();
+    };
+  }, [facingMode]);
+
+  // Toggle front/rear camera
+  const toggleFacingMode = () => {
+    const next = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(next);
+  };
+
+  // Toggle flash mode
+  const cycleFlashMode = async () => {
+    const nextMode = flashMode === "auto" ? "on" : flashMode === "on" ? "off" : "auto";
+    setFlashMode(nextMode);
+
+    // Apply hardware torch if available and mode is "on"
+    if (cameraRef.current?.setTorch) {
+      await cameraRef.current.setTorch(nextMode === "on");
+    }
+  };
+
+  // Take photo action
+  const handleShutter = useCallback(async () => {
+    if (!videoRef.current || !photos.canCapture || saving) return;
+
+    // 1. Shutter animation & optical flash burst
+    setIsShutterBlinking(true);
+    if (flashMode === "on" || flashMode === "auto") {
+      setIsFlashBursting(true);
+      setTimeout(() => setIsFlashBursting(false), 380);
+    }
+    setTimeout(() => setIsShutterBlinking(false), 160);
+
+    // 2. Subtle mechanical haptic vibration if supported
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      try {
+        navigator.vibrate([18, 32, 18]);
+      } catch {
+        // Safe fallback
+      }
+    }
+
+    setSaving(true);
+    try {
+      // 3. Capture video frame to Blob
+      const image = await captureVideoFrame(videoRef.current);
+
+      // 4. Save to offline store
+      await photos.saveCapture(image, session.maxUploadBytes);
+
+      // 5. Trigger background sync or foreground sync
+      await requestPhotoBackgroundSync().catch(() => "unsupported" as const);
+      sync.notifyPhotoCaptured();
+
+      // 6. Confirmation stamp
+      setCapturedFeedback(true);
+      setTimeout(() => setCapturedFeedback(false), 1800);
+      setCameraError(null);
+    } catch (error) {
+      setCameraError(error instanceof Error ? error.message : "The photo could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }, [flashMode, photos, saving, session.maxUploadBytes, sync]);
+
+  // Shot count styling
+  const shotsLeft = photos.effectiveRemainingShots;
+  let counterText = `${shotsLeft} SHOTS LEFT`;
+  let isWarning = false;
+
+  if (shotsLeft === 1) {
+    counterText = "LAST SHOT";
+    isWarning = true;
+  } else if (shotsLeft === 0) {
+    counterText = "0 SHOTS LEFT";
+    isWarning = true;
+  } else if (shotsLeft <= 3) {
+    counterText = `${shotsLeft} SHOTS LEFT`;
+    isWarning = true;
+  }
+
+  return (
+    <main
+      style={{
+        minHeight: "100vh",
+        backgroundColor: "var(--wedding-bg)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "calc(var(--sat) + 12px) 16px calc(var(--sab) + 16px)",
+        position: "relative",
+        userSelect: "none",
+        maxWidth: "480px",
+        margin: "0 auto",
+      }}
+    >
+      {/* Full-screen optical flash burst when taking photo */}
+      {isFlashBursting && <div className="screen-flash-burst" aria-hidden="true" />}
+
+      {/* Top Wedding Header & Pass link */}
+      <header
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "10px",
+          padding: "0 4px",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <span
+            style={{
+              fontFamily: "var(--font-serif)",
+              fontSize: "18px",
+              fontWeight: 600,
+              color: "#FAF8F5",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {wedding.coupleNames}
+          </span>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "10px",
+              color: "var(--wedding-accent)",
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+            }}
+          >
+            {wedding.monogram} • {wedding.weddingDate}
+          </span>
+        </div>
+
+        {onBackToPass && (
+          <button
+            type="button"
+            onClick={onBackToPass}
+            style={{
+              padding: "5px 10px",
+              borderRadius: "6px",
+              backgroundColor: "rgba(255, 255, 255, 0.06)",
+              border: "1px solid rgba(255, 255, 255, 0.12)",
+              color: "#D8D4CC",
+              fontSize: "11px",
+              fontFamily: "var(--font-sans)",
+              fontWeight: 500,
+              cursor: "pointer",
+            }}
+            aria-label="View camera pass details"
+          >
+            Pass Details
+          </button>
+        )}
+      </header>
+
+      {/* PWA & Service Worker Notification banners */}
+      <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: "6px", marginBottom: "8px" }}>
+        <PwaInstallBanner />
+        <ServiceWorkerUpdateBanner isCapturingOrSaving={saving} />
+      </div>
+
+      {/* Physical Disposable Camera Body */}
+      <section
+        className="camera-grip-texture"
+        style={{
+          width: "100%",
+          backgroundColor: "var(--camera-casing)",
+          borderRadius: "24px",
+          border: "2px solid var(--camera-rim)",
+          boxShadow: 
+            "0 20px 40px -10px rgba(0, 0, 0, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.12), inset 0 -2px 4px rgba(0, 0, 0, 0.5)",
+          padding: "16px 14px 20px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "14px",
+          position: "relative",
+        }}
+      >
+        {/* Camera Top Bar: Flash Toggle, Printed Brand, Lens Flip */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0 6px",
+          }}
+        >
+          {/* Flash Mode Toggle */}
+          <button
+            type="button"
+            onClick={() => void cycleFlashMode()}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "5px 10px",
+              borderRadius: "6px",
+              backgroundColor: "rgba(0, 0, 0, 0.35)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              color: flashMode === "off" ? "#7D7871" : "var(--counter-amber)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "11px",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+            aria-label={`Flash mode: ${flashMode}. Tap to change.`}
+          >
+            <FlashIcon size={13} />
+            <span>{flashMode.toUpperCase()}</span>
+          </button>
+
+          {/* Stamped Disposable Camera label */}
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "10.5px",
+              letterSpacing: "0.18em",
+              color: "#7E7972",
+              textTransform: "uppercase",
+              fontWeight: 700,
+            }}
+          >
+            DISPOSABLE 35MM
+          </div>
+
+          {/* Front / Rear Camera Flip */}
+          <button
+            type="button"
+            onClick={toggleFacingMode}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              padding: "5px 10px",
+              borderRadius: "6px",
+              backgroundColor: "rgba(0, 0, 0, 0.35)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
+              color: "#D8D4CC",
+              fontFamily: "var(--font-mono)",
+              fontSize: "11px",
+              cursor: "pointer",
+            }}
+            aria-label="Switch front or back camera"
+          >
+            <FlipCameraIcon size={13} />
+            <span>{facingMode === "environment" ? "REAR" : "FRONT"}</span>
+          </button>
+        </div>
+
+        {/* Viewfinder Window */}
+        <div
+          className="viewfinder-housing"
+          style={{
+            height: "clamp(260px, 48vh, 360px)",
+            position: "relative",
+          }}
+        >
+          {/* Live Video Feed */}
+          <video
+            ref={videoRef}
+            aria-label="Camera viewfinder"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              transform: facingMode === "user" ? "scaleX(-1)" : "none",
+              display: cameraActive ? "block" : "none",
+            }}
+          />
+
+          {/* Shutter Blade Blink blackout overlay */}
+          {isShutterBlinking && <div className="shutter-blade-flash" aria-hidden="true" />}
+
+          {/* Viewfinder Optical Framing Marks & Crosshair */}
+          <div className="viewfinder-reticle" aria-hidden="true">
+            <div className="reticle-corner reticle-corner-tl" />
+            <div className="reticle-corner reticle-corner-tr" />
+            <div className="reticle-corner reticle-corner-bl" />
+            <div className="reticle-corner reticle-corner-br" />
+            <div className="reticle-center" />
+          </div>
+
+          {/* Captured feedback notification badge */}
+          {capturedFeedback && (
+            <div
+              className="captured-stamp"
+              style={{
+                position: "absolute",
+                top: "20px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                backgroundColor: "rgba(18, 17, 16, 0.85)",
+                border: "1px solid var(--wedding-accent)",
+                borderRadius: "999px",
+                padding: "6px 16px",
+                color: "#FAF8F5",
+                fontFamily: "var(--font-sans)",
+                fontSize: "13px",
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                backdropFilter: "blur(6px)",
+                boxShadow: "0 4px 16px rgba(0, 0, 0, 0.5)",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                zIndex: 50,
+              }}
+            >
+              <span style={{ color: "var(--wedding-accent)", display: "flex", alignItems: "center" }}>
+                <CheckIcon size={14} />
+              </span>
+              <span>Captured</span>
+            </div>
+          )}
+
+          {/* Inactive or Error State within Viewfinder */}
+          {(!cameraActive || cameraError) && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#141312",
+                color: "#E2DDD5",
+                padding: "20px",
+                textAlign: "center",
+                zIndex: 35,
+              }}
+            >
+              <div style={{ color: "var(--wedding-accent)", marginBottom: "10px" }}>
+                <CameraIcon size={32} />
+              </div>
+              <p style={{ fontSize: "14px", color: "#A8A29A", marginBottom: "14px", maxWidth: "260px" }}>
+                {cameraError ?? "Enable camera access to capture photos."}
+              </p>
+              <button
+                type="button"
+                onClick={() => void initCamera(facingMode)}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: "8px",
+                  backgroundColor: "var(--wedding-accent)",
+                  border: "none",
+                  color: "#181715",
+                  fontWeight: 600,
+                  fontSize: "13px",
+                  cursor: "pointer",
+                }}
+              >
+                Enable Camera
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Middle Status & Frame Counter Bar */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0 6px",
+          }}
+        >
+          {/* LCD Frame Counter */}
+          <div
+            className={`frame-counter-box ${isWarning ? "warning" : ""}`}
+            aria-live="polite"
+            aria-label={counterText}
+          >
+            <span style={{ fontSize: "17px", fontWeight: 700, marginRight: "5px" }}>
+              {shotsLeft.toString().padStart(2, "0")}
+            </span>
+            <span style={{ fontSize: "10px", fontWeight: 600, opacity: 0.85 }}>
+              {shotsLeft === 1 ? "LAST SHOT" : shotsLeft === 0 ? "EXHAUSTED" : "SHOTS LEFT"}
+            </span>
+          </div>
+
+          {/* Fine Vintage Stamped Mark */}
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "10px",
+              color: "#6D6862",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+            }}
+          >
+            ROLL NO. {session.cameraPassId.slice(0, 4).toUpperCase()}
+          </div>
+        </div>
+
+        {/* Lower Control Deck: Shutter Button or Roll Finished */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "10px 0 6px",
+            minHeight: "110px",
+          }}
+        >
+          {shotsLeft > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+              <button
+                type="button"
+                className="shutter-button"
+                disabled={!photos.canCapture || saving || !cameraActive}
+                onClick={() => void handleShutter()}
+                aria-label={saving ? "Saving photo…" : `Take photo. ${counterText}.`}
+              >
+                <div className="shutter-inner-ring" />
+              </button>
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "9.5px",
+                  letterSpacing: "0.2em",
+                  color: "#8C867E",
+                  textTransform: "uppercase",
+                  fontWeight: 600,
+                }}
+              >
+                {saving ? "SAVING…" : "SHUTTER"}
+              </span>
+            </div>
+          ) : (
+            <RollFinished
+              weddingName={wedding.coupleNames}
+              waitingCount={photos.localPendingShots}
+              syncState={sync.state}
+              attentionCount={attentionPhotos.length}
+              onOpenAttention={() => setShowAttentionModal(true)}
+            />
+          )}
+        </div>
+      </section>
+
+      {/* Bottom Sync and Network Status */}
+      <footer
+        style={{
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "8px",
+          marginTop: "12px",
+        }}
+      >
+        <SyncStatusBar
+          state={sync.state}
+          offline={offline || network.offline}
+          waitingCount={photos.localPendingShots}
+          attentionCount={attentionPhotos.length}
+          onOpenAttention={() => setShowAttentionModal(true)}
+        />
+      </footer>
+
+      {/* Needs Attention Modal Dialog */}
+      <NeedsAttentionModal
+        isOpen={showAttentionModal}
+        onClose={() => setShowAttentionModal(false)}
+        attentionPhotos={attentionPhotos}
+        onRetry={sync.manualRetry}
+      />
+    </main>
+  );
+}

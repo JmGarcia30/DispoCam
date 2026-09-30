@@ -15,6 +15,8 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
   const [lastResult, setLastResult] = useState<SyncBatchResult | null>(null);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [queueFailure, setQueueFailure] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  const [savingUpload, setSavingUpload] = useState(false);
   const activeRun = useRef<Promise<SyncBatchResult> | null>(null);
 
   const applyResult = useCallback((result: SyncBatchResult) => {
@@ -35,7 +37,15 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
     }
     await preparePhotosForManualRetry(cameraPassId, photoId);
     setState(manual ? "retrying" : "uploading");
-    return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, { canReach: async () => true, pageMode, photoIds: [photoId] }));
+    return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, {
+      canReach: async () => true,
+      pageMode,
+      photoIds: [photoId],
+      onUploadProgress: (percentage) => {
+        setUploadPercent(percentage);
+        setSavingUpload(percentage === null);
+      },
+    }));
   }, [applyResult, cameraPassId, cameraToken, checkNetwork, pageMode]);
 
   const run = useCallback((photoId?: string) => {
@@ -47,7 +57,7 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
         return applyResult({ status: outstanding.length ? "retry-scheduled" : "complete", uploaded: 0, retryScheduled: outstanding.length, needsAttention: 0, remaining: outstanding.length });
       }
       return uploadOne(photoId, false);
-    })().finally(() => { activeRun.current = null; setProgress(null); });
+    })().finally(() => { activeRun.current = null; setProgress(null); setUploadPercent(null); setSavingUpload(false); });
     activeRun.current = batch;
     return batch;
   }, [applyResult, cameraPassId, uploadOne]);
@@ -71,7 +81,7 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
       }
       const remaining = (await offlinePhotoStore.getOutstandingPhotos(cameraPassId)).length;
       return applyResult({ status: remaining ? "retry-scheduled" : "complete", uploaded, retryScheduled: remaining, needsAttention: 0, remaining });
-    })().finally(() => { activeRun.current = null; setProgress(null); });
+    })().finally(() => { activeRun.current = null; setProgress(null); setUploadPercent(null); setSavingUpload(false); });
     activeRun.current = batch;
     return batch;
   }, [applyResult, cameraPassId, uploadOne]);
@@ -98,5 +108,5 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
   }, [cameraPassId, networkOnline]);
 
   const syncing = state === "uploading" || state === "checking-connection" || state === "retrying";
-  return { state, syncing, reachable: networkOnline, lastResult, progress, queueFailure, run, manualRetry, notifyPhotoCaptured };
+  return { state, syncing, reachable: networkOnline, lastResult, progress, uploadPercent, savingUpload, queueFailure, run, manualRetry, notifyPhotoCaptured };
 }

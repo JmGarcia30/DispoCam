@@ -198,7 +198,11 @@ export function DisposableCamera({
       );
 
       // 4. Save to offline store
-      const saved = await photos.saveCapture(image, session.maxUploadBytes);
+      const saved = await photos.saveCapture(
+        image,
+        session.maxUploadBytes,
+        onlineCaptureRequired ? { maxDimension: 1600, quality: 0.75 } : undefined,
+      );
 
       // 5. Online-only events wait for authoritative registration before counting the shot.
       if (onlineCaptureRequired) {
@@ -479,7 +483,7 @@ export function DisposableCamera({
               <span style={{ color: "var(--wedding-accent)", display: "flex", alignItems: "center" }}>
                 <CheckIcon size={14} />
               </span>
-              <span>Captured</span>
+              <span>{onlineCaptureRequired ? "Photo saved" : "Captured"}</span>
             </div>
           )}
 
@@ -620,7 +624,13 @@ export function DisposableCamera({
                   fontWeight: 600,
                 }}
               >
-                {saving ? "UPLOADING…" : onlineCaptureRequired && network.offline ? "WI-FI OR MOBILE DATA REQUIRED" : "SHUTTER"}
+                {saving
+                  ? sync.savingUpload
+                    ? "SAVING…"
+                    : `UPLOADING…${sync.uploadPercent === null ? "" : ` ${sync.uploadPercent}%`}`
+                  : onlineCaptureRequired && network.offline
+                    ? "WI-FI OR MOBILE DATA REQUIRED"
+                    : "SHUTTER"}
               </span>
             </div>
           ) : (

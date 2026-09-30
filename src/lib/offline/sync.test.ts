@@ -46,6 +46,32 @@ function registered() {
   return json({ data: { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" } }, 201);
 }
 
+function xhrFactory(outcome: "success" | "network" | "timeout", onSend = vi.fn()) {
+  return () => {
+    const xhr = {
+      status: outcome === "success" ? 200 : 0,
+      responseText: JSON.stringify({ public_id: "weddings/pending/photo-one", secure_url: "https://res.cloudinary.test/photo-one.jpg" }),
+      timeout: 0,
+      upload: { onprogress: null as ((event: ProgressEvent) => void) | null },
+      onload: null as (() => void) | null,
+      onerror: null as (() => void) | null,
+      ontimeout: null as (() => void) | null,
+      onabort: null as (() => void) | null,
+      open: vi.fn(),
+      send: vi.fn((body: FormData) => {
+        onSend(body, xhr);
+        xhr.upload.onprogress?.({ lengthComputable: true, loaded: 3, total: 4 } as ProgressEvent);
+        queueMicrotask(() => {
+          if (outcome === "success") xhr.onload?.();
+          else if (outcome === "network") xhr.onerror?.();
+          else xhr.ontimeout?.();
+        });
+      }),
+    };
+    return xhr as unknown as XMLHttpRequest;
+  };
+}
+
 describe("photo synchronization", () => {
   let databaseName: string;
   let store: OfflinePhotoStore;
@@ -141,7 +167,7 @@ describe("photo synchronization", () => {
     expect(new Headers(init.headers).get("X-Upload-Intent-Id")).toBe(INTENT_ID);
   });
 
-  it("selects binary proxy first for iOS Safari only", () => {
+  it("detects iOS Safari for XHR direct transport selection", () => {
     expect(isIosSafari("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1")).toBe(true);
     expect(isIosSafari("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 CriOS/130.0 Mobile/15E148 Safari/604.1")).toBe(false);
     expect(isIosSafari("Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15", "MacIntel", 0)).toBe(false);
@@ -188,7 +214,7 @@ describe("photo synchronization", () => {
     expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
   });
 
-  it("uses the 700 KB raw binary proxy first for an iOS Safari session", async () => {
+  it("uses XHR direct first for a 700 KB iOS Safari upload and then registers", async () => {
     await store.clearPhotosForPass(PASS_ID);
     const bytes = new Uint8Array(700_000);
     bytes.set([0xff, 0xd8, 0xff]);
@@ -199,15 +225,62 @@ describe("photo synchronization", () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(pass())
       .mockResolvedValueOnce(signed())
-      .mockResolvedValueOnce(json({ data: { id: "server-photo", client_upload_id: PHOTO_ID } }, 201));
-    const result = await syncCameraPhotos(PASS_ID, TOKEN, { ...options(fetcher), preferServerFallback: () => true });
+      .mockResolvedValueOnce(registered());
+    const sent = vi.fn();
+    const progress = vi.fn();
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, {
+      ...options(fetcher), iosXhrEnabled: () => true, xhrFactory: xhrFactory("success", sent), onUploadProgress: progress,
+    });
     expect(result).toMatchObject({ status: "complete", uploaded: 1, remaining: 0 });
     expect(fetcher).toHaveBeenCalledTimes(3);
-    expect(String(fetcher.mock.calls[2][0])).toContain("/uploads/proxy");
-    expect(fetcher.mock.calls[2][1]?.body).toBeInstanceOf(Blob);
-    expect((fetcher.mock.calls[2][1]?.body as Blob).size).toBe(700_000);
-    expect(fetcher.mock.calls.some(([url]) => String(url).includes("cloudinary.test"))).toBe(false);
+    expect(String(fetcher.mock.calls[2][0])).toContain("/uploads/register");
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/proxy"))).toBe(false);
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect((sent.mock.calls[0][1] as XMLHttpRequest).timeout).toBe(20_000);
+    expect((sent.mock.calls[0][1] as XMLHttpRequest).open).toHaveBeenCalledWith("POST", "https://api.cloudinary.test/upload");
+    expect((sent.mock.calls[0][0] as FormData).get("file")).toBeInstanceOf(Blob);
+    expect(progress).toHaveBeenCalledWith(75);
+    expect(progress).toHaveBeenLastCalledWith(null);
     expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it.each(["network", "timeout"] as const)("falls back exactly once after an iOS XHR %s failure", async (outcome) => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(json({ data: { id: "server-photo", client_upload_id: PHOTO_ID } }, 201));
+    const sent = vi.fn();
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, {
+      ...options(fetcher), iosXhrEnabled: () => true, xhrFactory: xhrFactory(outcome, sent),
+    });
+    expect(result).toMatchObject({ status: "complete", uploaded: 1, remaining: 0 });
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith("/uploads/proxy"))).toHaveLength(1);
+  });
+
+  it("attempts XHR direct for four sequential iOS uploads", async () => {
+    await store.clearPhotosForPass(PASS_ID);
+    const ids = [PHOTO_ID, "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "dddddddd-dddd-4ddd-8ddd-dddddddddddd", "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"];
+    for (const id of ids) {
+      await store.storePhoto({ id, cameraPassId: PASS_ID, image: new Blob(["photo"], { type: "image/jpeg" }), capturedAt: "2029-12-31T22:00:00.000Z", width: 1600, height: 1200 });
+    }
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url).endsWith(`/camera/${TOKEN}`)) return pass();
+      if (String(url).endsWith("/uploads/sign")) {
+        const id = JSON.parse(String(init?.body)).clientUploadId;
+        return signed(crypto.randomUUID(), `weddings/pending/${id}`);
+      }
+      return registered();
+    });
+    const sent = vi.fn();
+    for (const id of ids) {
+      await expect(syncCameraPhotos(PASS_ID, TOKEN, {
+        ...options(fetcher), iosXhrEnabled: () => true, xhrFactory: xhrFactory("success", sent), photoIds: [id],
+      })).resolves.toMatchObject({ uploaded: 1 });
+    }
+    expect(sent).toHaveBeenCalledTimes(4);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/proxy"))).toBe(false);
+    expect(await store.getOutstandingPhotos(PASS_ID)).toEqual([]);
   });
 
   it("uploads a three-photo saved queue one record at a time", async () => {

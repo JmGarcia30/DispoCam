@@ -54,6 +54,9 @@ export interface SyncDependencies {
   claimId?: () => string;
   pageMode?: CameraPageMode;
   preferServerFallback?: () => boolean;
+  iosXhrEnabled?: () => boolean;
+  xhrFactory?: () => XMLHttpRequest;
+  onUploadProgress?: (percentage: number | null) => void;
   photoIds?: readonly string[];
 }
 
@@ -175,7 +178,7 @@ async function requestSignature(fetcher: typeof fetch, token: string, clientUplo
   );
 }
 
-async function uploadToCloudinary(fetcher: typeof fetch, signed: Exclude<SignResponse["data"], { alreadyRegistered: true }>, image: Blob) {
+function cloudinaryUploadForm(signed: Exclude<SignResponse["data"], { alreadyRegistered: true }>, image: Blob): FormData {
   const form = new FormData();
   form.set("api_key", signed.upload.apiKey);
   form.set("timestamp", String(signed.upload.timestamp));
@@ -185,6 +188,11 @@ async function uploadToCloudinary(fetcher: typeof fetch, signed: Exclude<SignRes
   form.set("signature", signed.upload.signature);
   const publicIdParts = signed.upload.publicId.split("/");
   form.set("file", image, `${publicIdParts[publicIdParts.length - 1] || "photo"}.jpg`);
+  return form;
+}
+
+async function uploadToCloudinary(fetcher: typeof fetch, signed: Exclude<SignResponse["data"], { alreadyRegistered: true }>, image: Blob) {
+  const form = cloudinaryUploadForm(signed, image);
   try {
     return await requestJson<CloudinaryResponse>(fetcher, signed.uploadUrl, { method: "POST", body: form }, "cloudinary", NETWORK_TIMEOUTS.cloudinaryUploadMs);
   } catch (error) {
@@ -193,9 +201,45 @@ async function uploadToCloudinary(fetcher: typeof fetch, signed: Exclude<SignRes
   }
 }
 
+export function uploadToCloudinaryXhr(
+  signed: Exclude<SignResponse["data"], { alreadyRegistered: true }>,
+  image: Blob,
+  options: { xhrFactory?: () => XMLHttpRequest; onProgress?: (percentage: number) => void } = {},
+): Promise<CloudinaryResponse> {
+  return new Promise((resolve, reject) => {
+    const xhr = (options.xhrFactory ?? (() => new XMLHttpRequest()))();
+    const fail = (status: number | undefined, code: string, message: string) =>
+      reject(new SyncRequestError("cloudinary-direct", status, code, message, "direct"));
+    xhr.open("POST", signed.uploadUrl);
+    xhr.timeout = 20_000;
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        options.onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        fail(xhr.status, `cloudinary_http_${xhr.status}`, "Cloudinary upload failed.");
+        return;
+      }
+      try {
+        const body = JSON.parse(xhr.responseText) as Partial<CloudinaryResponse>;
+        if (!body.public_id || !body.secure_url) throw new Error("Invalid Cloudinary response");
+        resolve({ public_id: body.public_id, secure_url: body.secure_url });
+      } catch {
+        fail(xhr.status, "cloudinary_invalid_response", "Cloudinary returned an invalid upload response.");
+      }
+    };
+    xhr.onerror = () => fail(undefined, "xhr_network_error", "The network request failed.");
+    xhr.ontimeout = () => fail(408, "xhr_timeout", "The upload request timed out and will be retried.");
+    xhr.onabort = () => fail(undefined, "xhr_aborted", "The upload request was cancelled.");
+    xhr.send(cloudinaryUploadForm(signed, image));
+  });
+}
+
 export function isDirectTransportFailure(error: unknown): error is SyncRequestError {
   return error instanceof SyncRequestError && error.stage === "cloudinary-direct" &&
-    (error.code === "network_error" || error.code === "request_timeout");
+    (["network_error", "request_timeout", "xhr_network_error", "xhr_timeout"].includes(error.code));
 }
 
 async function uploadThroughServer(
@@ -335,9 +379,9 @@ async function processClaimedPhoto(
   initialPhoto: OfflinePhoto,
   token: string,
   claimId: string,
-  dependencies: Required<Pick<SyncDependencies, "store" | "fetch" | "fallbackCanReach" | "now" | "random" | "claimLeaseMs" | "pageMode" | "preferServerFallback">>,
+  dependencies: Required<Pick<SyncDependencies, "store" | "fetch" | "fallbackCanReach" | "now" | "random" | "claimLeaseMs" | "pageMode" | "preferServerFallback" | "iosXhrEnabled">> & Pick<SyncDependencies, "xhrFactory" | "onUploadProgress">,
 ): Promise<"uploaded" | "retry" | "attention"> {
-  const { store, fetch: fetcher, fallbackCanReach, now, random, claimLeaseMs, pageMode, preferServerFallback } = dependencies;
+  const { store, fetch: fetcher, fallbackCanReach, now, random, claimLeaseMs, pageMode, preferServerFallback, iosXhrEnabled, xhrFactory, onUploadProgress } = dependencies;
   let photo = initialPhoto;
   if (process.env.NODE_ENV !== "production") console.info("DispoCam upload diagnostic", { event: "upload_attempt", processedByteSize: photo.byteSize });
   const renew = (patch: Partial<OfflinePhoto> = {}) =>
@@ -364,7 +408,8 @@ async function processClaimedPhoto(
         cloudinaryUploadedAt: undefined,
       });
 
-      if (photo.preferServerFallback || preferServerFallback()) {
+      const iosXhr = iosXhrEnabled();
+      if (!iosXhr && (photo.preferServerFallback || preferServerFallback())) {
         photo = await renew({ preferServerFallback: true });
         await uploadThroughServer(fetcher, token, photo, signed.data.intentId, pageMode);
         await store.completeClaimedPhoto(photo.id, claimId);
@@ -375,7 +420,10 @@ async function processClaimedPhoto(
 
       let cloudinary: CloudinaryResponse | undefined;
       try {
-        cloudinary = await uploadToCloudinary(fetcher, signed.data, photo.image);
+        cloudinary = iosXhr
+          ? await uploadToCloudinaryXhr(signed.data, photo.image, { xhrFactory, onProgress: (percentage) => onUploadProgress?.(percentage) })
+          : await uploadToCloudinary(fetcher, signed.data, photo.image);
+        onUploadProgress?.(null);
       } catch (error) {
         if (isDirectTransportFailure(error) && await fallbackCanReach()) {
           photo = await renew({ preferServerFallback: true });
@@ -478,7 +526,8 @@ async function runBatch(
   const claimLeaseMs = options.claimLeaseMs ?? DEFAULT_CLAIM_LEASE_MS;
   const claimId = (options.claimId ?? createClaimId)();
   const pageMode = options.pageMode ?? "real-camera-route";
-  const preferServerFallback = options.preferServerFallback ?? isIosSafari;
+  const preferServerFallback = options.preferServerFallback ?? (() => false);
+  const iosXhrEnabled = options.iosXhrEnabled ?? isIosSafari;
   const base = { uploaded: 0, retryScheduled: 0, needsAttention: 0 };
   let outstanding = await store.getOutstandingPhotos(cameraPassId);
   const eligibleIds = options.photoIds ? new Set(options.photoIds) : undefined;
@@ -548,6 +597,9 @@ async function runBatch(
       fallbackCanReach: fallbackReachable,
       pageMode,
       preferServerFallback,
+      iosXhrEnabled,
+      xhrFactory: options.xhrFactory,
+      onUploadProgress: options.onUploadProgress,
     });
     if (outcome === "uploaded") base.uploaded += 1;
     else if (outcome === "retry") base.retryScheduled += 1;

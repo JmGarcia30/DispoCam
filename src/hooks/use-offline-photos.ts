@@ -36,9 +36,10 @@ export function useOfflinePhotos(cameraPassId: string, serverRemainingShots: num
   const effectiveRemainingShots = calculateEffectiveRemainingShots(serverRemainingShots, localPendingShots);
 
   const saveCapture = useCallback(
-    async (image: Blob, maxUploadBytes: number) => {
+    async (image: Blob, maxUploadBytes: number, processing?: { maxDimension?: number; quality?: number }) => {
       const saved = await preprocessAndStoreCapture(cameraPassId, image, {
         maxBytes: maxUploadBytes,
+        ...processing,
         serverRemainingShots,
       });
       await refresh();

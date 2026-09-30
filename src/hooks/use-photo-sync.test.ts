@@ -60,6 +60,17 @@ describe("usePhotoSync online capture", () => {
     );
   });
 
+  it("does not reuse another photo's foreground promise and deduplicates the same photo", async () => {
+    const sync = usePhotoSync("camera-pass", "camera-token", "real-camera-route", true);
+    const photoA = sync.notifyPhotoCaptured("photo-a");
+    const duplicateA = sync.notifyPhotoCaptured("photo-a");
+    const photoB = sync.notifyPhotoCaptured("photo-b");
+    expect(photoB).not.toBe(photoA);
+    await Promise.all([photoA, duplicateA, photoB]);
+    expect(syncCameraPhotos).toHaveBeenCalledTimes(2);
+    expect(syncCameraPhotos.mock.calls.map(([, , options]) => options.photoIds)).toEqual([["photo-a"], ["photo-b"]]);
+  });
+
   it("selects the same due clientUploadId for automatic retry without selecting a concurrent upload", () => {
     const due = { id: "same-client-upload-id", status: "failed", failureKind: "retryable", nextRetryAt: "2026-10-01T00:00:02.000Z" } as OfflinePhoto;
     const future = { id: "future", status: "failed", failureKind: "retryable", nextRetryAt: "2026-10-01T00:00:20.000Z" } as OfflinePhoto;

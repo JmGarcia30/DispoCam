@@ -857,7 +857,7 @@ describe("photo synchronization", () => {
     expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
   });
 
-  it("deduplicates concurrent foreground sync runs", async () => {
+  it("deduplicates concurrent sync runs for the same photo", async () => {
     const fetcher = vi.fn<typeof fetch>(async (url) => {
       await new Promise((resolve) => setTimeout(resolve, 5));
       if (String(url).endsWith(`/camera/${TOKEN}`)) return pass();
@@ -866,11 +866,46 @@ describe("photo synchronization", () => {
       return registered();
     });
 
-    const first = syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
-    const second = syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
+    const first = syncCameraPhotos(PASS_ID, TOKEN, { ...options(fetcher), photoIds: [PHOTO_ID] });
+    const second = syncCameraPhotos(PASS_ID, TOKEN, { ...options(fetcher), photoIds: [PHOTO_ID] });
     expect(second).toBe(first);
     await Promise.all([first, second]);
     expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it("runs different photos independently when an automatic retry overlaps a new capture", async () => {
+    const secondId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    await store.storePhoto({
+      id: secondId,
+      cameraPassId: PASS_ID,
+      image: new Blob(["second"], { type: "image/jpeg" }),
+      capturedAt: "2029-12-31T22:01:00.000Z",
+      width: 1200,
+      height: 900,
+    });
+    const registeredIds: string[] = [];
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      if (String(url).endsWith(`/camera/${TOKEN}`)) return pass();
+      if (String(url).endsWith("/uploads/sign")) {
+        const id = JSON.parse(String(init?.body)).clientUploadId;
+        return signed(crypto.randomUUID(), `weddings/pending/${id}`);
+      }
+      if (String(url).includes("cloudinary.test")) {
+        const form = init?.body as FormData;
+        return cloudinary(String(form.get("public_id")));
+      }
+      const id = JSON.parse(String(init?.body)).clientUploadId;
+      registeredIds.push(id);
+      return registered();
+    });
+
+    const retryA = syncCameraPhotos(PASS_ID, TOKEN, { ...options(fetcher), photoIds: [PHOTO_ID] });
+    const captureB = syncCameraPhotos(PASS_ID, TOKEN, { ...options(fetcher), photoIds: [secondId] });
+    expect(captureB).not.toBe(retryA);
+    await expect(Promise.all([retryA, captureB])).resolves.toMatchObject([{ uploaded: 1 }, { uploaded: 1 }]);
+    expect(registeredIds.sort()).toEqual([PHOTO_ID, secondId].sort());
+    expect(await store.getOutstandingPhotos(PASS_ID)).toEqual([]);
   });
 
   it("never deletes the local record before registration is confirmed", async () => {

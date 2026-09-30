@@ -13,7 +13,7 @@ import { safeUploadDiagnostic } from "@/lib/network/upload-diagnostics";
 export { fetchWithTimeout } from "@/lib/network/fetch-timeout";
 
 const DEFAULT_CLAIM_LEASE_MS = 5 * 60_000;
-const runningBatches = new Map<string, Promise<SyncBatchResult>>();
+const runningPhotos = new Map<string, Promise<SyncBatchResult>>();
 
 export type SyncBatchStatus =
   | "complete"
@@ -755,9 +755,12 @@ export function syncCameraPhotos(
   token: string | null,
   options: SyncDependencies = {},
 ): Promise<SyncBatchResult> {
-  const active = runningBatches.get(cameraPassId);
+  const photoIds = options.photoIds ? [...new Set(options.photoIds)] : [];
+  if (photoIds.length !== 1) return runBatch(cameraPassId, token, options);
+  const key = `${cameraPassId}:${photoIds[0]}`;
+  const active = runningPhotos.get(key);
   if (active) return active;
-  const batch = runBatch(cameraPassId, token, options).finally(() => runningBatches.delete(cameraPassId));
-  runningBatches.set(cameraPassId, batch);
+  const batch = runBatch(cameraPassId, token, options).finally(() => runningPhotos.delete(key));
+  runningPhotos.set(key, batch);
   return batch;
 }

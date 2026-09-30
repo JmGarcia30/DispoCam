@@ -72,15 +72,39 @@ export async function POST(request: Request, context: { params: Promise<{ token:
 
     let resource;
     try {
-      resource = await readVerifiedCloudinaryImage(intent.cloudinary_public_id);
-    } catch {
-      try {
-        console.info({ route: "camera-upload-proxy", event: "cloudinary_upload_started" });
-        await uploadImageBuffer(Buffer.from(bytes), intent.cloudinary_public_id, `intent_id=${intent.id}|client_upload_id=${fields.clientUploadId}`);
-        console.info({ route: "camera-upload-proxy", event: "cloudinary_upload_completed" });
-      } catch {
-        // A lost direct response or racing proxy may have created the exact reserved asset.
+      console.info({ route: "camera-upload-proxy", event: "cloudinary_upload_started" });
+      const uploaded = await uploadImageBuffer(
+        Buffer.from(bytes),
+        intent.cloudinary_public_id,
+        `intent_id=${intent.id}|client_upload_id=${fields.clientUploadId}`,
+      );
+      console.info({ route: "camera-upload-proxy", event: "cloudinary_upload_completed" });
+
+      // Use Cloudinary's upload response directly on the normal path. This avoids
+      // two extra Admin API lookups around every upload, which was causing the
+      // browser to hit its proxy deadline on real mobile networks.
+      resource = {
+        public_id: String(uploaded.public_id ?? intent.cloudinary_public_id),
+        secure_url: String(uploaded.secure_url ?? ""),
+        width: Number(uploaded.width ?? 0),
+        height: Number(uploaded.height ?? 0),
+        bytes: Number(uploaded.bytes ?? bytes.byteLength),
+        resource_type: String(uploaded.resource_type ?? "image"),
+      };
+
+      if (
+        !resource.secure_url ||
+        !resource.width ||
+        !resource.height ||
+        resource.resource_type !== "image" ||
+        resource.bytes > env.MAX_UPLOAD_BYTES
+      ) {
+        throw new Error("Cloudinary returned an invalid upload result.");
       }
+    } catch {
+      // If a previous attempt actually reached Cloudinary but the response was
+      // lost, overwrite:false can reject the retry because the reserved asset
+      // already exists. Reconcile with one verification lookup only in that case.
       try {
         resource = await readVerifiedCloudinaryImage(intent.cloudinary_public_id);
       } catch {

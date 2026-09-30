@@ -48,7 +48,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
       .eq("client_upload_id", fields.clientUploadId)
       .maybeSingle();
     if (existing.error) throw fromDatabaseError(existing.error);
-    if (existing.data) return Response.json({ data: existing.data, reconciled: true });
+    if (existing.data) return Response.json({ data: existing.data, reconciled: true }, { headers: { "X-DispoCam-Route": "camera-upload-proxy" } });
 
     const intentResult = await supabaseAdmin.from("upload_intents")
       .select("id,camera_pass_id,client_upload_id,cloudinary_public_id,status,expires_at")
@@ -97,7 +97,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
       resource,
     });
     console.info({ route: "camera-upload-proxy", event: "registration_completed" });
-    return Response.json({ data: photo }, { status: 201 });
+    return Response.json({ data: photo }, { status: 201, headers: { "X-DispoCam-Route": "camera-upload-proxy" } });
   } catch (error) {
     const details = safeApiErrorDetails(error);
     if (details.status >= 500) console.error({ event: "camera_upload_error", route: "proxy", stage: "cloudinary", ...details, clientUploadId, intentId });

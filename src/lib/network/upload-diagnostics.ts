@@ -8,3 +8,7 @@ export function uploadDiagnosticsEnabled(): boolean {
 export function safeUploadDiagnostic(event: string, details: Record<string, unknown> = {}): void {
   if (uploadDiagnosticsEnabled()) console.info("DispoCam upload diagnostic", { event, ...details });
 }
+
+export function sameOriginMultipartPost(body: FormData): RequestInit {
+  return { method: "POST", body, credentials: "same-origin", cache: "no-store" };
+}

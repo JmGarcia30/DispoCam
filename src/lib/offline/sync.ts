@@ -8,7 +8,7 @@ import { FetchTimeoutError, fetchWithTimeout } from "@/lib/network/fetch-timeout
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { preprocessImage, type ProcessedImage } from "@/lib/camera/preprocess";
 import { PROXY_IMAGE_JPEG_QUALITY, PROXY_IMAGE_MAX_BYTES, PROXY_IMAGE_MAX_DIMENSION } from "@/lib/network/proxy-upload";
-import { safeUploadDiagnostic, uploadDiagnosticsEnabled } from "@/lib/network/upload-diagnostics";
+import { safeUploadDiagnostic, sameOriginMultipartPost, uploadDiagnosticsEnabled } from "@/lib/network/upload-diagnostics";
 
 export { fetchWithTimeout } from "@/lib/network/fetch-timeout";
 
@@ -208,6 +208,11 @@ async function uploadThroughServer(
   form.set("capturedAt", photo.capturedAt);
   form.set("image", proxyImage, `${photo.id}.jpg`);
   const endpoint = buildProxyEndpoint(token);
+  const currentOrigin = typeof window === "undefined" ? undefined : window.location.origin;
+  const endpointOrigin = typeof window === "undefined" ? undefined : new URL(endpoint).origin;
+  if (currentOrigin && endpointOrigin !== currentOrigin) {
+    throw new SyncRequestError("proxy", 400, "invalid_proxy_origin", "The upload proxy origin is invalid.", "server-fallback");
+  }
 
   if (uploadDiagnosticsEnabled()) {
     const probe = new FormData();
@@ -215,7 +220,7 @@ async function uploadThroughServer(
     probe.set("sample", new Blob([new Uint8Array(1_024)], { type: "application/octet-stream" }), "probe.bin");
     try {
       const probeUrl = typeof window === "undefined" ? "/api/health/upload-probe" : new URL("/api/health/upload-probe", window.location.origin).toString();
-      const response = await fetchWithTimeout(fetcher, probeUrl, { method: "POST", body: probe, credentials: "same-origin", cache: "no-store", redirect: "error" }, NETWORK_TIMEOUTS.healthMs);
+      const response = await fetchWithTimeout(fetcher, probeUrl, sameOriginMultipartPost(probe), NETWORK_TIMEOUTS.healthMs);
       safeUploadDiagnostic("upload_probe_response", { status: response.status });
     } catch (error) {
       safeUploadDiagnostic("upload_probe_rejected", { errorName: error instanceof Error ? error.name : "UnknownError", errorMessage: error instanceof Error ? error.message : "Unknown error" });
@@ -231,11 +236,14 @@ async function uploadThroughServer(
       pageMode,
       online: typeof navigator === "undefined" ? undefined : navigator.onLine,
       signalAborted: signal?.aborted ?? false,
+      endpointOrigin,
+      currentOrigin,
+      responseReceived: false,
     });
     if (signal?.aborted) throw new DOMException("The proxy request signal was already aborted.", "AbortError");
     try {
       const response = await fetcher(input, init);
-      safeUploadDiagnostic("proxy_fetch_response", { status: response.status });
+      safeUploadDiagnostic("proxy_fetch_response", { status: response.status, endpointOrigin, currentOrigin, responseReceived: true });
       return response;
     } catch (error) {
       safeUploadDiagnostic("proxy_fetch_rejected", {
@@ -243,6 +251,9 @@ async function uploadThroughServer(
         errorMessage: error instanceof Error ? error.message : "Unknown error",
         aborted: signal?.aborted ?? false,
         timeout: signal?.aborted ?? false,
+        endpointOrigin,
+        currentOrigin,
+        responseReceived: false,
       });
       throw error;
     }
@@ -251,7 +262,7 @@ async function uploadThroughServer(
     await requestJson(
       tracedFetcher,
       endpoint,
-      { method: "POST", body: form, credentials: "same-origin", cache: "no-store", redirect: "error" },
+      sameOriginMultipartPost(form),
       "proxy",
       NETWORK_TIMEOUTS.cloudinaryUploadMs,
     );

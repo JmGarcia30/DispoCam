@@ -13,6 +13,7 @@ const bodySchema = z.object({ clientUploadId: z.uuid() });
 export async function POST(request: Request, context: { params: Promise<{ token: string }> }) {
   let clientUploadId: string | undefined;
   try {
+    console.info({ route: "camera-upload-sign", event: "request_received" });
     const { token } = await context.params;
     ({ clientUploadId } = bodySchema.parse(await request.json()));
     const publicId = `weddings/pending/${randomBytes(24).toString("hex")}`;
@@ -28,7 +29,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
 
     // An idempotent retry after completion does not issue a new storage upload.
     if (intent.existing_photo_id) {
-      return Response.json({ data: { alreadyRegistered: true, photoId: intent.existing_photo_id } });
+      return Response.json({ data: { alreadyRegistered: true, photoId: intent.existing_photo_id } }, { headers: { "X-DispoCam-Route": "camera-upload-sign" } });
     }
 
     const signed = signUpload(intent.public_id, intent.intent_id, clientUploadId);
@@ -39,7 +40,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
         uploadUrl: `https://api.cloudinary.com/v1_1/${signed.cloudName}/image/upload`,
         upload: signed,
       },
-    });
+    }, { headers: { "X-DispoCam-Route": "camera-upload-sign" } });
   } catch (error) {
     const details = safeApiErrorDetails(error);
     if (details.status >= 500) console.error({ event: "camera_upload_error", route: "sign", stage: "sign", ...details, clientUploadId });

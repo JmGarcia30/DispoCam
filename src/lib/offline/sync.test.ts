@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfflinePhotoStore } from "@/lib/offline/database";
 import { buildProxyEndpoint, createProxyUploadBlob, fetchWithTimeout, isDirectTransportFailure, isRetryableStatus, requestJson, SyncRequestError, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
 import { PROXY_IMAGE_MAX_BYTES, VERCEL_FUNCTION_BODY_LIMIT_BYTES } from "@/lib/network/proxy-upload";
+import { sameOriginMultipartPost } from "@/lib/network/upload-diagnostics";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { preparePhotosForManualRetry } from "@/lib/offline/manual-retry";
 
@@ -120,11 +121,23 @@ describe("photo synchronization", () => {
     expect(proxyCall).toBeDefined();
     const body = proxyCall![1]?.body as FormData;
     expect(new Headers(proxyCall![1]?.headers).has("Content-Type")).toBe(false);
+    expect(proxyCall![1]?.redirect).toBeUndefined();
+    expect(proxyCall![1]).toMatchObject({ method: "POST", credentials: "same-origin", cache: "no-store" });
     expect(body.get("clientUploadId")).toBe(PHOTO_ID);
     expect(body.get("intentId")).toBe(INTENT_ID);
     expect(body.get("image")).toBeInstanceOf(Blob);
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/register"))).toBe(false);
     expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("omits redirect and Content-Type from proxy and diagnostic-probe multipart options", () => {
+    const proxy = sameOriginMultipartPost(new FormData());
+    const probe = sameOriginMultipartPost(new FormData());
+    for (const init of [proxy, probe]) {
+      expect(init.redirect).toBeUndefined();
+      expect(init.headers).toBeUndefined();
+      expect(init).toMatchObject({ method: "POST", credentials: "same-origin", cache: "no-store" });
+    }
   });
 
   it("uploads a 700 KB photo through an absolute same-origin proxy URL with a fresh signal", async () => {
@@ -155,6 +168,23 @@ describe("photo synchronization", () => {
     const proxyCall = fetcher.mock.calls.find(([url]) => String(url).endsWith("/uploads/proxy"))!;
     expect((proxyCall[1]?.body as FormData).get("image")).toBeInstanceOf(Blob);
     expect(((proxyCall[1]?.body as FormData).get("image") as Blob).size).toBe(700_000);
+    expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("allows a same-origin proxy redirect to resolve to its final response", async () => {
+    const finalResponse = json({ data: { id: "server-photo" } }, 201);
+    Object.defineProperty(finalResponse, "redirected", { value: true });
+    Object.defineProperty(finalResponse, "url", { value: "https://camera.example/api/camera/token/uploads/proxy" });
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockRejectedValueOnce(new TypeError("Direct upload failed"))
+      .mockImplementationOnce(async (_url, init) => {
+        expect(init?.redirect).toBeUndefined();
+        return finalResponse;
+      });
+    await expect(syncCameraPhotos(PASS_ID, TOKEN, options(fetcher))).resolves.toMatchObject({ status: "complete", uploaded: 1 });
+    expect(finalResponse.redirected).toBe(true);
     expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
   });
 

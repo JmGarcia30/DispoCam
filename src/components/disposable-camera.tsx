@@ -17,7 +17,7 @@ import { NeedsAttentionModal } from "@/components/needs-attention-modal";
 import { PwaInstallBanner } from "@/components/pwa-install-banner";
 import { ServiceWorkerUpdateBanner } from "@/components/service-worker-update-banner";
 import { CameraIcon, CheckIcon, FlashIcon, FlipCameraIcon } from "@/components/icons";
-import { canStartCountedCapture, shotsAfterRegistration, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
+import { canStartCountedCapture, finalizeOnlineCaptureOutcome, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
 import { CAMERA_FILTERS, DEFAULT_CAMERA_FILTER, getCameraFilterPreset, type CameraFilter } from "@/lib/camera/filters";
 
 interface DisposableCameraProps {
@@ -60,33 +60,28 @@ export function DisposableCamera({
   const photos = useOfflinePhotos(session.cameraPassId, session.serverRemainingShots);
   const sync = usePhotoSync(session.cameraPassId, token, pageMode);
   const onlineCaptureRequired = wedding.requiresOnlineCapture;
-  const refreshedResultRef = useRef(sync.lastResult);
 
   const failedPhotos = photos.photos.filter((photo) => photo.status !== "uploaded");
   const attentionPhotos = failedPhotos.filter((photo) => photo.failureKind === "attention");
   const retryablePhotos = failedPhotos.filter((photo) => photo.failureKind === "retryable");
 
-  // Keep server shot count refreshed when uploads finish
-  useEffect(() => {
-    if (!token || !sync.lastResult?.uploaded || refreshedResultRef.current === sync.lastResult) return;
-    refreshedResultRef.current = sync.lastResult;
-    let active = true;
-    void fetchWithTimeout(fetch, `/api/camera/${encodeURIComponent(token)}`, { cache: "no-store" }, NETWORK_TIMEOUTS.cameraPassMs)
-      .then(async (response) => (response.ok ? response.json() : undefined))
-      .then(async (payload) => {
-        if (!active || !payload?.data) return;
-        const updated: OfflineCameraSession = {
-          ...session,
-          serverRemainingShots: payload.data.shots_remaining,
-          resolvedAt: new Date().toISOString(),
-        };
-        onSessionUpdated(updated);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [onSessionUpdated, session, sync.lastResult, token]);
+  const refreshAuthoritativeShots = useCallback(async (): Promise<number | null> => {
+    if (!token) return null;
+    try {
+      const response = await fetchWithTimeout(fetch, `/api/camera/${encodeURIComponent(token)}`, { cache: "no-store" }, NETWORK_TIMEOUTS.cameraPassMs);
+      if (!response.ok) return null;
+      const payload = await response.json();
+      if (typeof payload?.data?.shots_remaining !== "number") return null;
+      onSessionUpdated({
+        ...session,
+        serverRemainingShots: payload.data.shots_remaining,
+        resolvedAt: new Date().toISOString(),
+      });
+      return payload.data.shots_remaining;
+    } catch {
+      return null;
+    }
+  }, [onSessionUpdated, session, token]);
 
   // Start or switch camera
   const initCamera = useCallback(
@@ -207,13 +202,22 @@ export function DisposableCamera({
       // 5. Online-only events wait for authoritative registration before counting the shot.
       if (onlineCaptureRequired) {
         const result = await sync.notifyPhotoCaptured(saved.id);
-        if (result.uploaded !== 1) {
-          await offlinePhotoStore.deletePhoto(saved.id);
-          await photos.refresh();
-          setUploadNotice("Photo wasn't uploaded. Your shot was not used. Please try again.");
+        const outcome = await finalizeOnlineCaptureOutcome({
+          uploaded: result.uploaded,
+          confirmedNotRegistered: result.confirmedNotRegistered,
+          previousShots: session.serverRemainingShots,
+          refreshShots: refreshAuthoritativeShots,
+          deleteLocal: async () => {
+            await offlinePhotoStore.deletePhoto(saved.id);
+            await photos.refresh();
+          },
+        });
+        if (outcome !== "success") {
+          setUploadNotice(outcome === "failed"
+            ? "Photo wasn't uploaded. Your shot was not used. Please try again."
+            : "Checking photo…");
           return;
         }
-        onSessionUpdated({ ...session, serverRemainingShots: shotsAfterRegistration(session.serverRemainingShots, true), resolvedAt: new Date().toISOString() });
       } else {
         void sync.notifyPhotoCaptured(saved.id);
       }
@@ -228,7 +232,7 @@ export function DisposableCamera({
     } finally {
       setSaving(false);
     }
-  }, [flashMode, hardwareTorchAvailable, network, onlineCaptureRequired, onSessionUpdated, photos, saving, selectedFilter, session, sync]);
+  }, [flashMode, hardwareTorchAvailable, network, onlineCaptureRequired, photos, refreshAuthoritativeShots, saving, selectedFilter, session, sync]);
 
   // Shot count styling
   const shotsLeft = visibleShotsRemaining(onlineCaptureRequired, session.serverRemainingShots, photos.effectiveRemainingShots);
@@ -625,7 +629,9 @@ export function DisposableCamera({
                 }}
               >
                 {saving
-                  ? sync.savingUpload
+                  ? sync.checkingPhoto
+                    ? "CHECKING PHOTO…"
+                    : sync.savingUpload
                     ? "SAVING…"
                     : `UPLOADING…${sync.uploadPercent === null ? "" : ` ${sync.uploadPercent}%`}`
                   : onlineCaptureRequired && network.offline

@@ -248,6 +248,7 @@ describe("photo synchronization", () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(pass())
       .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(json({ error: { code: "cloudinary_asset_not_found", message: "Not found" } }, 422))
       .mockResolvedValueOnce(json({ data: { id: "server-photo", client_upload_id: PHOTO_ID } }, 201));
     const sent = vi.fn();
     const result = await syncCameraPhotos(PASS_ID, TOKEN, {
@@ -256,6 +257,52 @@ describe("photo synchronization", () => {
     expect(result).toMatchObject({ status: "complete", uploaded: 1, remaining: 0 });
     expect(sent).toHaveBeenCalledTimes(1);
     expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith("/uploads/proxy"))).toHaveLength(1);
+  });
+
+  it("reconciles an iOS XHR timeout through registration without calling the proxy", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(registered());
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, {
+      ...options(fetcher), iosXhrEnabled: () => true, xhrFactory: xhrFactory("timeout"),
+    });
+    expect(result).toMatchObject({ status: "complete", uploaded: 1 });
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith("/uploads/register"))).toHaveLength(1);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/proxy"))).toBe(false);
+    expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("reconciles a lost proxy response through the idempotent sign endpoint", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(json({ error: { code: "cloudinary_asset_not_found", message: "Not found" } }, 422))
+      .mockRejectedValueOnce(new TypeError("Proxy response lost"))
+      .mockResolvedValueOnce(json({ data: { alreadyRegistered: true, photoId: "server-photo" } }));
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, {
+      ...options(fetcher), iosXhrEnabled: () => true, xhrFactory: xhrFactory("network"), reconciliationDelay: async () => undefined,
+    });
+    expect(result).toMatchObject({ status: "complete", uploaded: 1 });
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith("/uploads/proxy"))).toHaveLength(1);
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith("/uploads/sign"))).toHaveLength(2);
+    expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("confirms absence after two sign checks when both iOS transports fail", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(json({ error: { code: "cloudinary_asset_not_found", message: "Not found" } }, 422))
+      .mockRejectedValueOnce(new TypeError("Proxy response lost"))
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(signed());
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, {
+      ...options(fetcher), iosXhrEnabled: () => true, xhrFactory: xhrFactory("network"), reconciliationDelay: async () => undefined,
+    });
+    expect(result).toMatchObject({ status: "retry-scheduled", uploaded: 0, confirmedNotRegistered: true });
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith("/uploads/sign"))).toHaveLength(3);
+    expect(await store.getPhoto(PHOTO_ID)).toMatchObject({ id: PHOTO_ID, failureKind: "retryable" });
   });
 
   it("attempts XHR direct for four sequential iOS uploads", async () => {

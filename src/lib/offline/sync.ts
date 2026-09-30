@@ -30,6 +30,7 @@ export interface SyncBatchResult {
   remaining: number;
   nextRetryAt?: string;
   diagnostic?: SyncDiagnostic;
+  confirmedNotRegistered?: boolean;
 }
 
 export interface SyncDiagnostic {
@@ -57,6 +58,8 @@ export interface SyncDependencies {
   iosXhrEnabled?: () => boolean;
   xhrFactory?: () => XMLHttpRequest;
   onUploadProgress?: (percentage: number | null) => void;
+  onReconciliationState?: (checking: boolean) => void;
+  reconciliationDelay?: (milliseconds: number) => Promise<void>;
   photoIds?: readonly string[];
 }
 
@@ -98,10 +101,38 @@ export class SyncRequestError extends Error {
     public readonly code: string,
     message: string,
     public readonly method?: UploadMethod,
+    public readonly confirmedNotRegistered = false,
   ) {
     super(message);
     this.name = "SyncRequestError";
   }
+}
+
+function isAmbiguousRegistrationFailure(error: unknown): error is SyncRequestError {
+  return error instanceof SyncRequestError && isRetryableStatus(error.status);
+}
+
+function isAmbiguousProxyFailure(error: unknown): error is SyncRequestError {
+  return error instanceof SyncRequestError &&
+    (["network_error", "request_timeout", "request_aborted"].includes(error.code) || (error.status !== undefined && error.status >= 500));
+}
+
+async function reconcileRegistration(
+  fetcher: typeof fetch,
+  token: string,
+  clientUploadId: string,
+  delay: (milliseconds: number) => Promise<void>,
+): Promise<"registered" | "not-registered" | "unknown"> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await delay(attempt === 0 ? 625 : 750);
+    try {
+      const signed = await requestSignature(fetcher, token, clientUploadId);
+      if ("alreadyRegistered" in signed.data) return "registered";
+    } catch {
+      return "unknown";
+    }
+  }
+  return "not-registered";
 }
 
 export function isRetryableStatus(status: number | undefined): boolean {
@@ -379,9 +410,9 @@ async function processClaimedPhoto(
   initialPhoto: OfflinePhoto,
   token: string,
   claimId: string,
-  dependencies: Required<Pick<SyncDependencies, "store" | "fetch" | "fallbackCanReach" | "now" | "random" | "claimLeaseMs" | "pageMode" | "preferServerFallback" | "iosXhrEnabled">> & Pick<SyncDependencies, "xhrFactory" | "onUploadProgress">,
-): Promise<"uploaded" | "retry" | "attention"> {
-  const { store, fetch: fetcher, fallbackCanReach, now, random, claimLeaseMs, pageMode, preferServerFallback, iosXhrEnabled, xhrFactory, onUploadProgress } = dependencies;
+  dependencies: Required<Pick<SyncDependencies, "store" | "fetch" | "fallbackCanReach" | "now" | "random" | "claimLeaseMs" | "pageMode" | "preferServerFallback" | "iosXhrEnabled" | "reconciliationDelay">> & Pick<SyncDependencies, "xhrFactory" | "onUploadProgress" | "onReconciliationState">,
+): Promise<"uploaded" | "retry" | "retry-confirmed" | "attention"> {
+  const { store, fetch: fetcher, fallbackCanReach, now, random, claimLeaseMs, pageMode, preferServerFallback, iosXhrEnabled, xhrFactory, onUploadProgress, onReconciliationState, reconciliationDelay } = dependencies;
   let photo = initialPhoto;
   if (process.env.NODE_ENV !== "production") console.info("DispoCam upload diagnostic", { event: "upload_attempt", processedByteSize: photo.byteSize });
   const renew = (patch: Partial<OfflinePhoto> = {}) =>
@@ -426,11 +457,46 @@ async function processClaimedPhoto(
         onUploadProgress?.(null);
       } catch (error) {
         if (isDirectTransportFailure(error) && await fallbackCanReach()) {
-          photo = await renew({ preferServerFallback: true });
-          await uploadThroughServer(fetcher, token, photo, signed.data.intentId, pageMode);
+          if (!iosXhr) {
+            photo = await renew({ preferServerFallback: true });
+            await uploadThroughServer(fetcher, token, photo, signed.data.intentId, pageMode);
+            await store.completeClaimedPhoto(photo.id, claimId);
+            photoSyncChannel.publish({ type: "upload-completed", cameraPassId: photo.cameraPassId, photoId: photo.id });
+            photoSyncChannel.publish({ type: "shot-count-changed", cameraPassId: photo.cameraPassId });
+            return "uploaded";
+          }
+          onReconciliationState?.(true);
+          let useProxy = true;
+          try {
+            await registerUpload(fetcher, token, photo, signed.data.intentId, signed.data.upload.publicId);
+            useProxy = false;
+          } catch (registrationError) {
+            if (!(registrationError instanceof SyncRequestError && registrationError.code === "cloudinary_asset_not_found")) {
+              if (!isAmbiguousRegistrationFailure(registrationError)) throw registrationError;
+              const registration = await reconcileRegistration(fetcher, token, photo.id, reconciliationDelay);
+              if (registration === "registered") useProxy = false;
+              else if (registration === "unknown") throw registrationError;
+            }
+          }
+          if (useProxy) {
+            photo = await renew({ preferServerFallback: true });
+            try {
+              await uploadThroughServer(fetcher, token, photo, signed.data.intentId, pageMode);
+            } catch (proxyError) {
+              if (!isAmbiguousProxyFailure(proxyError)) throw proxyError;
+              const registration = await reconcileRegistration(fetcher, token, photo.id, reconciliationDelay);
+              if (registration !== "registered") {
+                if (registration === "not-registered" && proxyError instanceof SyncRequestError) {
+                  throw new SyncRequestError(proxyError.stage, proxyError.status, proxyError.code, proxyError.message, proxyError.method, true);
+                }
+                throw proxyError;
+              }
+            }
+          }
           await store.completeClaimedPhoto(photo.id, claimId);
           photoSyncChannel.publish({ type: "upload-completed", cameraPassId: photo.cameraPassId, photoId: photo.id });
           photoSyncChannel.publish({ type: "shot-count-changed", cameraPassId: photo.cameraPassId });
+          onReconciliationState?.(false);
           return "uploaded";
         }
         // With overwrite=false, a conflict after a lost response can mean the first upload succeeded.
@@ -450,6 +516,7 @@ async function processClaimedPhoto(
     photoSyncChannel.publish({ type: "shot-count-changed", cameraPassId: photo.cameraPassId });
     return "uploaded";
   } catch (error) {
+    onReconciliationState?.(false);
     const requestError = error instanceof SyncRequestError ? error : undefined;
     if (requestError && isIntentExpiry(requestError)) {
       const delay = calculateRetryDelay(photo.attempts, random);
@@ -470,7 +537,7 @@ async function processClaimedPhoto(
         cloudinaryUploadedAt: undefined,
       });
       photoSyncChannel.publish({ type: "upload-failed", cameraPassId: photo.cameraPassId, photoId: photo.id });
-      return "retry";
+      return requestError?.confirmedNotRegistered ? "retry-confirmed" : "retry";
     }
     if (!requestError || isRetryableStatus(requestError.status)) {
       const delay = calculateRetryDelay(photo.attempts, random);
@@ -490,7 +557,7 @@ async function processClaimedPhoto(
         claimExpiresAt: undefined,
       });
       photoSyncChannel.publish({ type: "upload-failed", cameraPassId: photo.cameraPassId, photoId: photo.id });
-      return "retry";
+      return requestError?.confirmedNotRegistered ? "retry-confirmed" : "retry";
     }
     await store.updateClaimedPhoto(photo.id, claimId, {
       status: "failed",
@@ -528,7 +595,9 @@ async function runBatch(
   const pageMode = options.pageMode ?? "real-camera-route";
   const preferServerFallback = options.preferServerFallback ?? (() => false);
   const iosXhrEnabled = options.iosXhrEnabled ?? isIosSafari;
+  const reconciliationDelay = options.reconciliationDelay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const base = { uploaded: 0, retryScheduled: 0, needsAttention: 0 };
+  let confirmedNotRegistered = false;
   let outstanding = await store.getOutstandingPhotos(cameraPassId);
   const eligibleIds = options.photoIds ? new Set(options.photoIds) : undefined;
   if (!token) return { ...base, status: "token-unavailable", remaining: outstanding.length };
@@ -600,9 +669,14 @@ async function runBatch(
       iosXhrEnabled,
       xhrFactory: options.xhrFactory,
       onUploadProgress: options.onUploadProgress,
+      onReconciliationState: options.onReconciliationState,
+      reconciliationDelay,
     });
     if (outcome === "uploaded") base.uploaded += 1;
-    else if (outcome === "retry") base.retryScheduled += 1;
+    else if (outcome === "retry" || outcome === "retry-confirmed") {
+      base.retryScheduled += 1;
+      confirmedNotRegistered ||= outcome === "retry-confirmed";
+    }
     else base.needsAttention += 1;
   }
 
@@ -629,6 +703,7 @@ async function runBatch(
     diagnostic: failed?.failureStage && failed.failureCode
       ? { stage: failed.failureStage, status: failed.failureStatus, code: failed.failureCode, message: failed.lastError ?? "Upload failed.", method: failed.failureMethod, transport: failed.failureTransport, processedByteSize: failed.processedByteSize ?? failed.byteSize, pageMode: failed.failurePageMode }
       : undefined,
+    confirmedNotRegistered,
   };
 }
 

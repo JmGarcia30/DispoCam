@@ -2,6 +2,7 @@ import { preprocessImage, type ImageProcessingOptions } from "@/lib/camera/prepr
 import { offlinePhotoStore, type OfflinePhotoStore } from "@/lib/offline/database";
 import type { OfflinePhoto } from "@/lib/offline/types";
 import { photoSyncChannel } from "@/lib/offline/channel";
+import { createBrowserUuid } from "@/lib/browser/uuid";
 
 export interface StoreCaptureOptions extends ImageProcessingOptions {
   id?: string;
@@ -16,7 +17,7 @@ export async function preprocessAndStoreCapture(
   source: Blob,
   options: StoreCaptureOptions = {},
 ): Promise<OfflinePhoto> {
-  const id = options.id ?? crypto.randomUUID();
+  const id = options.id ?? createBrowserUuid();
   const capturedAt = options.capturedAt ?? new Date().toISOString();
   const processed = await preprocessImage(source, options);
   const input = {

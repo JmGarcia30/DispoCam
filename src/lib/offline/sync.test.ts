@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfflinePhotoStore } from "@/lib/offline/database";
-import { syncCameraPhotos } from "@/lib/offline/sync";
+import { fetchWithTimeout, isRetryableStatus, requestJson, syncCameraPhotos } from "@/lib/offline/sync";
 
 const PASS_ID = "11111111-1111-4111-8111-111111111111";
 const TOKEN = "camera-token-with-more-than-thirty-two-characters";
@@ -62,6 +62,7 @@ describe("photo synchronization", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await store.close();
     indexedDB.deleteDatabase(databaseName);
     vi.restoreAllMocks();
@@ -91,6 +92,57 @@ describe("photo synchronization", () => {
     const registerBody = JSON.parse(String(fetcher.mock.calls[3][1]?.body));
     expect(signBody.clientUploadId).toBe(PHOTO_ID);
     expect(registerBody.clientUploadId).toBe(PHOTO_ID);
+    const uploadBody = fetcher.mock.calls[2][1]?.body as FormData;
+    expect(uploadBody.get("api_key")).toBe("public-key");
+    expect(uploadBody.get("timestamp")).toBe("1893456000");
+    expect(uploadBody.get("public_id")).toBe("weddings/pending/photo-one");
+    expect(uploadBody.get("overwrite")).toBe("false");
+    expect(uploadBody.get("context")).toBe(`intent_id=${INTENT_ID}|client_upload_id=${PHOTO_ID}`);
+    expect(uploadBody.get("signature")).toBe("temporary-signature");
+    expect(uploadBody.get("file")).toBeInstanceOf(Blob);
+  });
+
+  it("completes the full upload when AbortSignal.timeout is unavailable", async () => {
+    const original = Object.getOwnPropertyDescriptor(AbortSignal, "timeout");
+    Object.defineProperty(AbortSignal, "timeout", { configurable: true, value: undefined });
+    try {
+      const fetcher = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(pass())
+        .mockResolvedValueOnce(signed())
+        .mockResolvedValueOnce(cloudinary())
+        .mockResolvedValueOnce(registered());
+      const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
+      expect(result).toMatchObject({ status: "complete", uploaded: 1, remaining: 0 });
+      expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+    } finally {
+      if (original) Object.defineProperty(AbortSignal, "timeout", original);
+    }
+  });
+
+  it("aborts requests with AbortController after the configured timeout", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>((_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const pending = fetchWithTimeout(fetcher, "/slow", {}, 1_000);
+    const rejection = expect(pending).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await rejection;
+    expect((fetcher.mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("classifies a sign timeout as retryable", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>((_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const pending = requestJson(fetcher, "/sign", { method: "POST" }, "sign", 1_000);
+    const rejection = expect(pending).rejects.toMatchObject({ stage: "sign", status: 408, code: "request_timeout" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await rejection;
+    expect(isRetryableStatus(408)).toBe(true);
+    vi.useRealTimers();
   });
 
   it("keeps the stable clientUploadId across transient retries", async () => {

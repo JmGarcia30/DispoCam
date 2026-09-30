@@ -24,6 +24,9 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null) {
   const run = useCallback(async () => {
     setState(network.offline ? "waiting-for-connection" : "uploading");
     const result = await syncCameraPhotos(cameraPassId, cameraToken);
+    if (process.env.NODE_ENV !== "production" && result.diagnostic) {
+      console.warn("DispoCam sync diagnostic", result.diagnostic);
+    }
     setLastResult(result);
     if (result.status === "waiting-for-connection" || result.status === "token-unavailable") {
       setState("waiting-for-connection");

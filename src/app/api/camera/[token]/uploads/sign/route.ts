@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { signUpload } from "@/lib/cloudinary";
-import { errorResponse, fromDatabaseError } from "@/lib/api/errors";
+import { errorResponse, fromDatabaseError, safeApiErrorDetails } from "@/lib/api/errors";
 import { hashCameraToken } from "@/lib/security/token";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
@@ -11,9 +11,10 @@ export const runtime = "nodejs";
 const bodySchema = z.object({ clientUploadId: z.uuid() });
 
 export async function POST(request: Request, context: { params: Promise<{ token: string }> }) {
+  let clientUploadId: string | undefined;
   try {
     const { token } = await context.params;
-    const { clientUploadId } = bodySchema.parse(await request.json());
+    ({ clientUploadId } = bodySchema.parse(await request.json()));
     const publicId = `weddings/pending/${randomBytes(24).toString("hex")}`;
     const { data, error } = await supabaseAdmin.rpc("create_upload_intent", {
       p_token_hash: hashCameraToken(token),
@@ -40,6 +41,8 @@ export async function POST(request: Request, context: { params: Promise<{ token:
       },
     });
   } catch (error) {
+    const details = safeApiErrorDetails(error);
+    if (details.status >= 500) console.error({ event: "camera_upload_error", route: "sign", stage: "sign", ...details, clientUploadId });
     return errorResponse(error);
   }
 }

@@ -28,6 +28,13 @@ export function fromDatabaseError(error: { message: string; code?: string }): Ap
   return new ApiError(500, "database_error", "The request could not be completed.");
 }
 
+export function safeApiErrorDetails(error: unknown) {
+  if (error instanceof ApiError) return { status: error.status, code: error.code, message: error.message };
+  if (error instanceof ZodError) return { status: 400, code: "validation_error", message: "Invalid request." };
+  if (error instanceof SyntaxError) return { status: 400, code: "invalid_json", message: "The request body must be valid JSON." };
+  return { status: 500, code: "internal_error", message: "An unexpected error occurred." };
+}
+
 export function errorResponse(error: unknown) {
   if (error instanceof ApiError) {
     return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: error.status });
@@ -44,7 +51,7 @@ export function errorResponse(error: unknown) {
       { status: 400 },
     );
   }
-  console.error(error);
+  console.error({ event: "api_error", ...safeApiErrorDetails(error) });
   return NextResponse.json(
     { error: { code: "internal_error", message: "An unexpected error occurred." } },
     { status: 500 },

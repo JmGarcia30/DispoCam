@@ -36,7 +36,7 @@ export function SyncStatusBar({
   } else if (state === "uploading") {
     label = waitingCount > 0 ? `Uploading ${waitingCount} ${waitingCount === 1 ? "photo" : "photos"}…` : "Syncing photos…";
   } else if (state === "retry-scheduled") {
-    label = "Retrying upload soon";
+    label = "Upload temporarily failed. We'll keep trying.";
   }
 
   const content = (

@@ -1,8 +1,12 @@
 import { canReachApplication } from "@/lib/network/connectivity";
 import { offlinePhotoStore, type OfflinePhotoStore } from "@/lib/offline/database";
 import { calculateRetryDelay } from "@/lib/offline/retry";
-import type { OfflinePhoto } from "@/lib/offline/types";
+import type { OfflinePhoto, SyncFailureStage } from "@/lib/offline/types";
 import { photoSyncChannel } from "@/lib/offline/channel";
+import { createBrowserUuid } from "@/lib/browser/uuid";
+import { FetchTimeoutError, fetchWithTimeout } from "@/lib/network/fetch-timeout";
+
+export { fetchWithTimeout } from "@/lib/network/fetch-timeout";
 
 const DEFAULT_CLAIM_LEASE_MS = 5 * 60_000;
 const runningBatches = new Map<string, Promise<SyncBatchResult>>();
@@ -21,6 +25,14 @@ export interface SyncBatchResult {
   needsAttention: number;
   remaining: number;
   nextRetryAt?: string;
+  diagnostic?: SyncDiagnostic;
+}
+
+export interface SyncDiagnostic {
+  stage: SyncFailureStage;
+  status?: number;
+  code: string;
+  message: string;
 }
 
 export interface SyncDependencies {
@@ -64,7 +76,7 @@ interface CloudinaryResponse {
   secure_url: string;
 }
 
-class SyncRequestError extends Error {
+export class SyncRequestError extends Error {
   constructor(
     public readonly stage: "pass" | "sign" | "cloudinary" | "register",
     public readonly status: number | undefined,
@@ -76,7 +88,7 @@ class SyncRequestError extends Error {
   }
 }
 
-function isRetryableStatus(status: number | undefined): boolean {
+export function isRetryableStatus(status: number | undefined): boolean {
   return status === undefined || status === 408 || status === 429 || (status >= 500 && status <= 599);
 }
 
@@ -84,17 +96,29 @@ function isIntentExpiry(error: SyncRequestError): boolean {
   return error.code === "upload_intent_expired" || error.code === "upload_intent_not_found";
 }
 
-async function requestJson<T>(
+export function createClaimId(): string {
+  return createBrowserUuid();
+}
+
+export async function requestJson<T>(
   fetcher: typeof fetch,
   input: string,
   init: RequestInit,
   stage: SyncRequestError["stage"],
+  timeoutMs = 30_000,
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetcher(input, { ...init, signal: init.signal ?? AbortSignal.timeout(30_000) });
+    response = await fetchWithTimeout(fetcher, input, init, timeoutMs);
   } catch (error) {
-    throw new SyncRequestError(stage, undefined, "network_error", error instanceof Error ? error.message : "Network error");
+    const timeout = error instanceof FetchTimeoutError;
+    const aborted = !timeout && init.signal?.aborted;
+    throw new SyncRequestError(
+      stage,
+      timeout ? 408 : undefined,
+      timeout ? "request_timeout" : aborted ? "request_aborted" : "network_error",
+      timeout ? "The upload request timed out and will be retried." : aborted ? "The upload request was cancelled." : "The network request failed.",
+    );
   }
   const body = (await response.json().catch(() => ({}))) as T & ApiFailureBody;
   if (!response.ok) {
@@ -103,11 +127,14 @@ async function requestJson<T>(
       stage === "cloudinary" &&
       (response.status === 400 || response.status === 401) &&
       /signature|timestamp|stale/i.test(message);
+    const safeMessage = stage === "cloudinary"
+      ? staleCloudinarySignature ? "Cloudinary upload authorization expired." : "Cloudinary upload failed."
+      : message;
     throw new SyncRequestError(
       stage,
       staleCloudinarySignature ? 408 : response.status,
       staleCloudinarySignature ? "cloudinary_signature_expired" : (body.error?.code ?? `${stage}_http_${response.status}`),
-      message,
+      safeMessage,
     );
   }
   return body;
@@ -134,7 +161,8 @@ async function uploadToCloudinary(fetcher: typeof fetch, signed: Exclude<SignRes
   form.set("overwrite", String(signed.upload.overwrite));
   form.set("context", signed.upload.context);
   form.set("signature", signed.upload.signature);
-  form.set("file", image, `${signed.upload.publicId.split("/").at(-1) ?? "photo"}.jpg`);
+  const publicIdParts = signed.upload.publicId.split("/");
+  form.set("file", image, `${publicIdParts[publicIdParts.length - 1] || "photo"}.jpg`);
   return requestJson<CloudinaryResponse>(fetcher, signed.uploadUrl, { method: "POST", body: form }, "cloudinary");
 }
 
@@ -228,6 +256,8 @@ async function processClaimedPhoto(
         status: "failed",
         failureKind: "retryable",
         failureCode: requestError.code,
+        failureStage: requestError.stage,
+        failureStatus: requestError.status,
         lastError: "The upload reservation expired and will be refreshed.",
         nextRetryAt: new Date(now().getTime() + delay).toISOString(),
         claimId: undefined,
@@ -246,7 +276,9 @@ async function processClaimedPhoto(
         status: "failed",
         failureKind: "retryable",
         failureCode: requestError?.code ?? "sync_error",
-        lastError: requestError?.message ?? "Synchronization failed temporarily.",
+        failureStage: requestError?.stage,
+        failureStatus: requestError?.status,
+        lastError: requestError?.message ?? "Upload temporarily failed. We'll keep trying.",
         nextRetryAt: new Date(now().getTime() + delay).toISOString(),
         claimId: undefined,
         claimExpiresAt: undefined,
@@ -257,6 +289,8 @@ async function processClaimedPhoto(
       status: "failed",
       failureKind: "attention",
       failureCode: requestError.code,
+      failureStage: requestError.stage,
+      failureStatus: requestError.status,
       lastError: requestError.message,
       nextRetryAt: undefined,
       claimId: undefined,
@@ -278,7 +312,7 @@ async function runBatch(
   const now = options.now ?? (() => new Date());
   const random = options.random ?? Math.random;
   const claimLeaseMs = options.claimLeaseMs ?? DEFAULT_CLAIM_LEASE_MS;
-  const claimId = (options.claimId ?? (() => crypto.randomUUID()))();
+  const claimId = (options.claimId ?? createClaimId)();
   const base = { uploaded: 0, retryScheduled: 0, needsAttention: 0 };
   let outstanding = await store.getOutstandingPhotos(cameraPassId);
   if (!token) return { ...base, status: "token-unavailable", remaining: outstanding.length };
@@ -300,6 +334,9 @@ async function runBatch(
       ...base,
       status: terminal ? "needs-attention" : "waiting-for-connection",
       remaining: outstanding.length,
+      diagnostic: error instanceof SyncRequestError
+        ? { stage: error.stage, status: error.status, code: error.code, message: error.message }
+        : { stage: "pass", code: "sync_error", message: "The pass check failed temporarily." },
     };
   }
 
@@ -361,7 +398,16 @@ async function runBatch(
     : retryablePhotos.length > 0
       ? "retry-scheduled"
       : "complete";
-  return { ...base, status, remaining: outstanding.length, nextRetryAt: retryDates[0] };
+  const failed = attentionPhotos[0] ?? retryablePhotos[0];
+  return {
+    ...base,
+    status,
+    remaining: outstanding.length,
+    nextRetryAt: retryDates[0],
+    diagnostic: failed?.failureStage && failed.failureCode
+      ? { stage: failed.failureStage, status: failed.failureStatus, code: failed.failureCode, message: failed.lastError ?? "Upload failed." }
+      : undefined,
+  };
 }
 
 /** In-memory lock deduplicates foreground triggers; IndexedDB claim leases coordinate tabs/reloads. */

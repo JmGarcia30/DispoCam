@@ -2,6 +2,7 @@ export const OFFLINE_PHOTO_STATUSES = ["pending", "uploading", "uploaded", "fail
 
 export type OfflinePhotoStatus = (typeof OFFLINE_PHOTO_STATUSES)[number];
 export type SyncFailureKind = "retryable" | "attention";
+export type SyncFailureStage = "pass" | "sign" | "cloudinary" | "register";
 
 export interface OfflinePhoto {
   /** Stable client upload UUID. It must also be used by the future sync API calls. */
@@ -18,6 +19,8 @@ export interface OfflinePhoto {
   byteSize: number;
   lastError?: string;
   failureCode?: string;
+  failureStage?: SyncFailureStage;
+  failureStatus?: number;
   failureKind?: SyncFailureKind;
   lastAttemptAt?: string;
   nextRetryAt?: string;

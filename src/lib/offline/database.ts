@@ -178,6 +178,8 @@ export class OfflinePhotoStore {
       claimExpiresAt: new Date(nowMs + leaseMs).toISOString(),
       lastError: undefined,
       failureCode: undefined,
+      failureStage: undefined,
+      failureStatus: undefined,
       failureKind: undefined,
       nextRetryAt: undefined,
     };
@@ -249,6 +251,8 @@ export class OfflinePhotoStore {
       status: "pending",
       failureKind: undefined,
       failureCode: undefined,
+      failureStage: undefined,
+      failureStatus: undefined,
       lastError: undefined,
       nextRetryAt: undefined,
       claimId: undefined,

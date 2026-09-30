@@ -123,7 +123,8 @@ export function NeedsAttentionModal({
                 border: "1px solid rgba(255, 255, 255, 0.06)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div style={{ display: "grid", gap: "3px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <span
                   style={{
                     fontFamily: "var(--font-mono)",
@@ -137,6 +138,12 @@ export function NeedsAttentionModal({
                 <span style={{ fontSize: "13px", color: "#D1CCC4" }}>
                   {new Date(photo.capturedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </span>
+                </div>
+                {photo.failureCode && (
+                  <small style={{ color: "#8F8980", fontFamily: "var(--font-mono)", fontSize: "9px" }}>
+                    {photo.failureStage ?? "sync"} · {photo.failureStatus ?? "network"} · {photo.failureCode}
+                  </small>
+                )}
               </div>
 
               <div style={{ display: "flex", gap: "8px" }}>

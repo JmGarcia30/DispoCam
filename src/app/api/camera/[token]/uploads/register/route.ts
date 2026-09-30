@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ApiError, errorResponse, fromDatabaseError } from "@/lib/api/errors";
+import { ApiError, errorResponse, fromDatabaseError, safeApiErrorDetails } from "@/lib/api/errors";
 import { verifyCloudinaryImage } from "@/lib/cloudinary";
 import { env } from "@/lib/env";
 import { hashCameraToken } from "@/lib/security/token";
@@ -15,9 +15,13 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request, context: { params: Promise<{ token: string }> }) {
+  let clientUploadId: string | undefined;
+  let intentId: string | undefined;
   try {
     const { token } = await context.params;
     const body = bodySchema.parse(await request.json());
+    clientUploadId = body.clientUploadId;
+    intentId = body.intentId;
     let resource;
     try {
       resource = await verifyCloudinaryImage(body.publicId);
@@ -44,6 +48,8 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     if (error) throw fromDatabaseError(error);
     return Response.json({ data: data?.[0] }, { status: 201 });
   } catch (error) {
+    const details = safeApiErrorDetails(error);
+    if (details.status >= 500) console.error({ event: "camera_upload_error", route: "register", stage: "register", ...details, clientUploadId, intentId });
     return errorResponse(error);
   }
 }

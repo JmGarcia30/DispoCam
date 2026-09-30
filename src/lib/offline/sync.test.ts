@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfflinePhotoStore } from "@/lib/offline/database";
 import { fetchWithTimeout, isRetryableStatus, requestJson, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
+import { preparePhotosForManualRetry } from "@/lib/offline/manual-retry";
 
 const PASS_ID = "11111111-1111-4111-8111-111111111111";
 const TOKEN = "camera-token-with-more-than-thirty-two-characters";
@@ -288,10 +289,15 @@ describe("photo synchronization", () => {
       .mockResolvedValueOnce(pass())
       .mockResolvedValueOnce(signed())
       .mockResolvedValueOnce(staleSignature);
-    await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
+    const failedResult = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
+    expect(failedResult).toMatchObject({
+      status: "retry-scheduled",
+      diagnostic: { stage: "cloudinary", status: 408, code: "cloudinary_signature_expired" },
+    });
     expect(await store.getPhoto(PHOTO_ID)).toMatchObject({
       id: PHOTO_ID,
       failureKind: "retryable",
+      failureStage: "cloudinary",
       failureCode: "cloudinary_signature_expired",
     });
 
@@ -318,8 +324,64 @@ describe("photo synchronization", () => {
     const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
     const saved = await store.getPhoto(PHOTO_ID);
     expect(result.status).toBe("retry-scheduled");
+    expect(result.diagnostic).toMatchObject({ stage: "sign", status: 500, code: "temporary" });
     expect(saved).toMatchObject({ status: "failed", attempts: 1, failureKind: "retryable" });
     expect(Date.parse(saved!.nextRetryAt!) - nowMs).toBe(2_000);
+  });
+
+  it("manually retries a retryable photo immediately despite a future nextRetryAt", async () => {
+    const firstAttempt = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(json({ error: { message: "temporary" } }, 503));
+    await syncCameraPhotos(PASS_ID, TOKEN, options(firstAttempt));
+    const failed = await store.getPhoto(PHOTO_ID);
+    expect(failed).toMatchObject({ failureKind: "retryable", failureStage: "cloudinary" });
+    expect(Date.parse(failed!.nextRetryAt!)).toBeGreaterThan(nowMs);
+
+    await preparePhotosForManualRetry(PASS_ID, undefined, store);
+    expect(await store.getPhoto(PHOTO_ID)).toMatchObject({
+      id: PHOTO_ID,
+      status: "pending",
+      image: expect.any(Blob),
+      nextRetryAt: undefined,
+      failureKind: undefined,
+      failureCode: undefined,
+      failureStage: undefined,
+      failureStatus: undefined,
+      lastError: undefined,
+      claimId: undefined,
+      claimExpiresAt: undefined,
+    });
+
+    const retry = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(cloudinary())
+      .mockResolvedValueOnce(registered());
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, options(retry));
+    expect(result).toMatchObject({ status: "complete", uploaded: 1 });
+    expect(JSON.parse(String(retry.mock.calls[1][1]?.body)).clientUploadId).toBe(PHOTO_ID);
+    expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("manually resets an attention photo so it retries immediately", async () => {
+    const terminal = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(json({ error: { code: "camera_pass_expired", message: "Expired" } }, 403));
+    await syncCameraPhotos(PASS_ID, TOKEN, options(terminal));
+    expect(await store.getPhoto(PHOTO_ID)).toMatchObject({ failureKind: "attention" });
+
+    expect(await preparePhotosForManualRetry(PASS_ID, undefined, store)).toBe(1);
+    expect(await store.getPhoto(PHOTO_ID)).toMatchObject({ status: "pending", failureKind: undefined });
+
+    const retry = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(cloudinary())
+      .mockResolvedValueOnce(registered());
+    await expect(syncCameraPhotos(PASS_ID, TOKEN, options(retry))).resolves.toMatchObject({ status: "complete", uploaded: 1 });
+    expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
   });
 
   it("marks terminal failures as needing attention and does not retry them", async () => {

@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { RollFinished } from "@/components/roll-finished";
 import { SyncStatusBar } from "@/components/sync-status-bar";
-import { getRetryButtonState } from "@/components/needs-attention-modal";
+import { getRetryButtonState, NeedsAttentionModal } from "@/components/needs-attention-modal";
+import type { OfflinePhoto } from "@/lib/offline/types";
 import { resolveWeddingConfig, DEFAULT_WEDDING_CONFIG } from "@/lib/wedding/config";
 
 describe("Guest-facing UI Components", () => {
@@ -127,10 +128,51 @@ describe("Guest-facing UI Components", () => {
     });
 
     it("uses calm retry-scheduled and active retry messages", () => {
-      const scheduled = renderToStaticMarkup(<SyncStatusBar state="retry-scheduled" offline={false} waitingCount={1} attentionCount={0} />);
+      const scheduled = renderToStaticMarkup(<SyncStatusBar state="retry-scheduled" offline={false} waitingCount={1} attentionCount={0} retryableCount={1} onOpenAttention={() => {}} />);
       const retrying = renderToStaticMarkup(<SyncStatusBar state="retrying" offline={false} waitingCount={1} attentionCount={0} />);
       expect(scheduled).toContain("Saved safely. Retrying when connection improves.");
+      expect(scheduled).toContain("Details");
       expect(retrying).toContain("Retrying upload…");
+    });
+
+    it("shows safe retryable diagnostics in the details modal", () => {
+      const retryablePhoto: OfflinePhoto = {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        cameraPassId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        image: new Blob(["photo"], { type: "image/jpeg" }),
+        capturedAt: "2029-12-31T22:00:00.000Z",
+        createdAt: "2029-12-31T22:00:00.000Z",
+        width: 1200,
+        height: 900,
+        byteSize: 5,
+        status: "failed",
+        attempts: 1,
+        failureKind: "retryable",
+        failureStage: "cloudinary",
+        failureStatus: 408,
+        failureCode: "request_timeout",
+        lastError: "The upload request timed out and will be retried.",
+      };
+      const html = renderToStaticMarkup(
+        <NeedsAttentionModal
+          isOpen
+          onClose={() => {}}
+          failedPhotos={[retryablePhoto]}
+          onRetry={async () => {}}
+          syncState="retry-scheduled"
+          offline={false}
+          backendReachable
+        />,
+      );
+      expect(html).toContain("Your photo is safe. We&#x27;ll retry automatically.");
+      expect(html).toContain("Stage: ");
+      expect(html).toContain("cloudinary");
+      expect(html).toContain("Status: ");
+      expect(html).toContain("408");
+      expect(html).toContain("request_timeout");
+      expect(html).toContain("The upload request timed out and will be retried.");
+      expect(html).not.toContain("camera-token");
+      expect(html).not.toContain("temporary-signature");
     });
 
     it("disables retry from actual sync and connectivity states", () => {

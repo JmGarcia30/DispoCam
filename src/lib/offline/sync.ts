@@ -278,6 +278,7 @@ async function processClaimedPhoto(
         cloudinarySecureUrl: undefined,
         cloudinaryUploadedAt: undefined,
       });
+      photoSyncChannel.publish({ type: "upload-failed", cameraPassId: photo.cameraPassId, photoId: photo.id });
       return "retry";
     }
     if (!requestError || isRetryableStatus(requestError.status)) {
@@ -293,6 +294,7 @@ async function processClaimedPhoto(
         claimId: undefined,
         claimExpiresAt: undefined,
       });
+      photoSyncChannel.publish({ type: "upload-failed", cameraPassId: photo.cameraPassId, photoId: photo.id });
       return "retry";
     }
     await store.updateClaimedPhoto(photo.id, claimId, {

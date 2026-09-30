@@ -8,7 +8,7 @@ import type { PhotoSyncUiState } from "@/hooks/use-photo-sync";
 interface NeedsAttentionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  attentionPhotos: OfflinePhoto[];
+  failedPhotos: OfflinePhoto[];
   onRetry: (photoId?: string) => Promise<unknown>;
   syncState: PhotoSyncUiState;
   offline: boolean;
@@ -38,7 +38,7 @@ export function getRetryButtonState(
 export function NeedsAttentionModal({
   isOpen,
   onClose,
-  attentionPhotos,
+  failedPhotos,
   onRetry,
   syncState,
   offline,
@@ -49,8 +49,11 @@ export function NeedsAttentionModal({
 
   if (!isOpen) return null;
 
-  const count = attentionPhotos.length;
-  const headline = count === 1 ? "1 photo couldn't be uploaded" : `${count} photos couldn't be uploaded`;
+  const count = failedPhotos.length;
+  const retryableCount = failedPhotos.filter((photo) => photo.failureKind === "retryable").length;
+  const headline = retryableCount === count
+    ? count === 1 ? "1 photo is waiting to retry" : `${count} photos are waiting to retry`
+    : count === 1 ? "1 photo needs attention" : `${count} photos need attention`;
   const { disabled: retryDisabled, label: retryLabel } = getRetryButtonState(syncState, offline, backendReachable, retrying);
 
   const handleRetryAll = async () => {
@@ -139,7 +142,7 @@ export function NeedsAttentionModal({
 
         {/* List of photos with individual actions */}
         <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
-          {attentionPhotos.map((photo, idx) => (
+          {failedPhotos.map((photo, idx) => (
             <div
               key={photo.id}
               style={{
@@ -168,10 +171,18 @@ export function NeedsAttentionModal({
                   {new Date(photo.capturedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </span>
                 </div>
+                <small style={{ color: photo.failureKind === "retryable" ? "#A8D5BA" : "#F6C177", fontSize: "11px" }}>
+                  {photo.failureKind === "retryable"
+                    ? "Your photo is safe. We'll retry automatically."
+                    : "This photo needs manual attention."}
+                </small>
                 {photo.failureCode && (
-                  <small style={{ color: "#8F8980", fontFamily: "var(--font-mono)", fontSize: "9px" }}>
-                    {photo.failureStage ?? "sync"} · {photo.failureStatus ?? "network"} · {photo.failureCode}
-                  </small>
+                  <dl style={{ margin: "5px 0 0", color: "#A8A29A", fontFamily: "var(--font-mono)", fontSize: "9px", lineHeight: 1.5 }}>
+                    <div><dt style={{ display: "inline" }}>Stage: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureStage ?? "sync"}</dd></div>
+                    <div><dt style={{ display: "inline" }}>Status: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureStatus ?? "network"}</dd></div>
+                    <div><dt style={{ display: "inline" }}>Code: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureCode}</dd></div>
+                    <div><dt style={{ display: "inline" }}>Message: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.lastError ?? "The upload will be retried."}</dd></div>
+                  </dl>
                 )}
               </div>
 

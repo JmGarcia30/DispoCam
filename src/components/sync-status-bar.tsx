@@ -8,6 +8,7 @@ interface SyncStatusBarProps {
   offline: boolean;
   waitingCount: number;
   attentionCount: number;
+  retryableCount?: number;
   onOpenAttention?: () => void;
   className?: string;
 }
@@ -17,6 +18,7 @@ export function SyncStatusBar({
   offline,
   waitingCount,
   attentionCount,
+  retryableCount = 0,
   onOpenAttention,
   className = "",
 }: SyncStatusBarProps) {
@@ -39,6 +41,7 @@ export function SyncStatusBar({
     label = waitingCount > 0 ? `Uploading ${waitingCount} ${waitingCount === 1 ? "photo" : "photos"}…` : "Syncing photos…";
   } else if (state === "retry-scheduled") {
     label = "Saved safely. Retrying when connection improves.";
+    isActionable = retryableCount > 0;
   }
 
   const content = (
@@ -93,7 +96,7 @@ export function SyncStatusBar({
             fontWeight: 600,
           }}
         >
-          View
+          {state === "retry-scheduled" ? "Details" : "View"}
         </span>
       )}
     </div>

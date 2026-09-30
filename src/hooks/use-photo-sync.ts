@@ -5,6 +5,7 @@ import { useNetworkStatus } from "@/hooks/use-network-status";
 import { offlinePhotoStore } from "@/lib/offline/database";
 import { syncCameraPhotos, type SyncBatchResult } from "@/lib/offline/sync";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
+import { preparePhotosForManualRetry } from "@/lib/offline/manual-retry";
 
 export type PhotoSyncUiState = "idle" | "checking-connection" | "uploading" | "retrying" | "waiting-for-connection" | "retry-scheduled" | "needs-attention";
 type RunKind = "automatic" | "retry";
@@ -54,15 +55,11 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null) {
   const manualRetry = useCallback((photoId?: string) => {
     if (activeRun.current) return activeRun.current;
     const batch = (async () => {
+      await preparePhotosForManualRetry(cameraPassId, photoId);
       setState("checking-connection");
       if (!(await checkNetwork())) {
         const outstanding = await offlinePhotoStore.getOutstandingPhotos(cameraPassId);
         return applyResult({ status: "waiting-for-connection", uploaded: 0, retryScheduled: 0, needsAttention: 0, remaining: outstanding.length });
-      }
-      if (photoId) await offlinePhotoStore.retryPhoto(photoId);
-      else {
-        const outstanding = await offlinePhotoStore.getOutstandingPhotos(cameraPassId);
-        await Promise.all(outstanding.filter((photo) => photo.failureKind === "attention").map((photo) => offlinePhotoStore.retryPhoto(photo.id)));
       }
       setState("retrying");
       return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, { canReach: async () => true }));

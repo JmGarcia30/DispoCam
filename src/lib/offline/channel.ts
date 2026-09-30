@@ -2,6 +2,7 @@ export type PhotoSyncMessageType =
   | "photo-queued"
   | "upload-started"
   | "upload-completed"
+  | "upload-failed"
   | "needs-attention"
   | "shot-count-changed";
 

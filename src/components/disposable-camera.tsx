@@ -56,8 +56,9 @@ export function DisposableCamera({
   const sync = usePhotoSync(session.cameraPassId, token);
   const refreshedResultRef = useRef(sync.lastResult);
 
-  // Filter photos that need attention
-  const attentionPhotos = photos.photos.filter((photo) => photo.failureKind === "attention");
+  const failedPhotos = photos.photos.filter((photo) => photo.failureKind === "attention" || photo.failureKind === "retryable");
+  const attentionPhotos = failedPhotos.filter((photo) => photo.failureKind === "attention");
+  const retryablePhotos = failedPhotos.filter((photo) => photo.failureKind === "retryable");
 
   // Keep server shot count refreshed when uploads finish
   useEffect(() => {
@@ -600,6 +601,7 @@ export function DisposableCamera({
           offline={offline || network.offline}
           waitingCount={photos.localPendingShots}
           attentionCount={attentionPhotos.length}
+          retryableCount={retryablePhotos.length}
           onOpenAttention={() => setShowAttentionModal(true)}
         />
         {process.env.NODE_ENV !== "production" && (
@@ -621,7 +623,7 @@ export function DisposableCamera({
       <NeedsAttentionModal
         isOpen={showAttentionModal}
         onClose={() => setShowAttentionModal(false)}
-        attentionPhotos={attentionPhotos}
+        failedPhotos={failedPhotos}
         onRetry={sync.manualRetry}
         syncState={sync.state}
         offline={offline || network.offline}

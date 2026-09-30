@@ -79,6 +79,23 @@ export interface Database {
         Args: { p_wedding_id: string; p_camera_pass_id: string; p_is_active: boolean };
         Returns: Array<{ id: string; shot_limit: number; shots_used: number; is_active: boolean }>;
       };
+      join_wedding_from_invite: {
+        Args: {
+          p_invite_token_hash: string;
+          p_display_name: string;
+          p_camera_token_hash: string;
+          p_browser_key_hash: string;
+          p_rate_identifier_hash: string;
+        };
+        Returns: Array<{
+          result_status: string;
+          wedding_id: string | null;
+          wedding_name: string | null;
+          guest_id: string | null;
+          camera_pass_id: string | null;
+          shot_limit: number | null;
+        }>;
+      };
     };
   };
 }

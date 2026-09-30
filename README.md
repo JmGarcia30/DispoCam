@@ -59,6 +59,7 @@ Success responses use `{ "data": ... }`. Errors use `{ "error": { "code", "messa
 
 ### Guest camera
 
+- `GET /api/join/:inviteToken` validates a wedding's hashed invite and returns only its display identity. `POST` atomically creates the guest and camera pass, returning the raw camera bearer token to that browser. The production QR target is `/join/:inviteToken`; wedding UUIDs are never public credentials.
 - `GET /api/camera/:token` returns wedding/guest display data, limit, used, reserved, remaining, and expiry.
 - `PATCH /api/camera/:token` accepts `{ "displayName": "Taylor" }` once for an unnamed guest. The pass bearer can name only the guest attached to that pass.
 - `POST /api/camera/:token/uploads/sign` accepts `{ "clientUploadId": "UUID" }` and returns an intent plus signed Cloudinary fields. Post `api_key`, `timestamp`, `public_id`, `overwrite`, `context`, `signature`, and the image `file` as multipart form data to `uploadUrl`.
@@ -73,6 +74,15 @@ Generate and persist one UUID for each captured image before its first network a
 - `/admin/login` signs existing Supabase Auth users in with email/password. `/admin` lists only assigned weddings and redirects single-wedding admins to their dashboard.
 - `GET /api/admin/weddings` lists the authenticated user's memberships. Dashboard, guest, photo download, and pass-management routes verify membership again on every request.
 - `PATCH /api/admin/weddings/:weddingId/camera-passes/:cameraPassId` grants shots, sets a valid shot limit, or activates/deactivates a pass. Only owners and editors may mutate passes.
+- The wedding dashboard Settings tab creates/rotates the private join URL, enables or disables joining, sets optional expiration, and controls the default pass allowance.
+
+## Self-service wedding join
+
+Apply `202609300003_wedding_self_service_join.sql`, then open the Test Wedding in `/admin`, select **Settings**, and choose **Create join URL**. Copy the URL immediately: Supabase stores only its SHA-256 hash, so the raw URL cannot be recovered later. Opening that same URL on a phone follows the real production path—name entry, atomic guest/pass creation, `/camera/:token`, IndexedDB capture, Cloudinary upload, and Supabase registration. New guests and photos automatically appear in the existing dashboard.
+
+The browser stores a random wedding-scoped join key and the issued camera bearer token in local storage so reopening the same join URL returns to the existing pass. It does not store token hashes, database credentials, or server secrets. Private browsing, storage eviction, or clearing browser data removes that association. In this anonymous no-login design, clearing storage or using another device can obtain another 10-shot pass; no invasive fingerprinting is attempted. PostgreSQL remains authoritative for every pass's shot limit, reservation, and registered-photo count.
+
+Guest-creation attempts are limited to 200 per wedding and network identifier per one-hour window, accommodating guests sharing venue Wi-Fi while bounding automated creation. The identifier is salted server-side before storage; raw IP addresses are not stored. Configure platform-level rate limiting as an additional production layer if the public join URL may receive hostile traffic.
 - `PATCH /api/admin/weddings/:weddingId/guests/:guestId` edits a guest display name (owner/editor only).
 - `POST /api/admin/weddings/:weddingId/camera-passes/:cameraPassId/test-reset` is an owner/editor-only test operation. Send `mode: "shot_count"` or `mode: "full"`, the exact `confirmation: "RESET TEST CAMERA PASS"`, and optionally `deleteCloudinaryAssets: true` for a full reset. A server reset never clears device queues; in development, the camera footer exposes a pass-scoped local cleanup button. For real guests, grant extra shots instead of using test reset.
 

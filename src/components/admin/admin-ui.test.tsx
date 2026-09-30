@@ -29,6 +29,17 @@ describe("admin guest list", () => {
     expect(html).toContain("+5"); expect(html).toContain("Testing / Development");
   });
 
+  it("shows a newly self-service joined guest with their issued pass", () => {
+    const joined: AdminGuest[] = [{
+      id: "joined-guest", display_name: "Miguel Garcia", last_activity: null,
+      passes: [{ id: "joined-pass", shot_limit: 10, shots_used: 0, shots_remaining: 10, is_active: true, expires_at: null }],
+    }];
+    const html = renderToStaticMarkup(<GuestList weddingId="wedding" initialGuests={joined} role="viewer" onChanged={async () => {}} />);
+    expect(html).toContain("Miguel Garcia");
+    expect(html).toContain("0 / 10 used");
+    expect(html).toContain("10 remaining");
+  });
+
   it("keeps viewer role read-only", () => {
     const html = renderToStaticMarkup(<GuestList weddingId="wedding" initialGuests={guests} role="viewer" onChanged={async () => {}} />);
     expect(html).not.toContain("Grant:"); expect(html).not.toContain("Deactivate"); expect(html).not.toContain("Full test reset");

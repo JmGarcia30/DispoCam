@@ -94,6 +94,10 @@ interface CloudinaryResponse {
   secure_url: string;
 }
 
+interface ReleaseIntentResponse {
+  data: { released: boolean };
+}
+
 export class SyncRequestError extends Error {
   constructor(
     public readonly stage: SyncFailureStage,
@@ -406,6 +410,26 @@ async function registerUpload(
   }
 }
 
+async function releaseUploadIntent(
+  fetcher: typeof fetch,
+  token: string,
+  photo: OfflinePhoto,
+): Promise<boolean> {
+  if (!photo.uploadIntentId) return false;
+  const response = await requestJson<ReleaseIntentResponse>(
+    fetcher,
+    `/api/camera/${encodeURIComponent(token)}/uploads/release`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intentId: photo.uploadIntentId, clientUploadId: photo.id }),
+    },
+    "register",
+    NETWORK_TIMEOUTS.uploadRegisterMs,
+  );
+  return response.data.released;
+}
+
 async function processClaimedPhoto(
   initialPhoto: OfflinePhoto,
   token: string,
@@ -518,6 +542,14 @@ async function processClaimedPhoto(
   } catch (error) {
     onReconciliationState?.(false);
     const requestError = error instanceof SyncRequestError ? error : undefined;
+    let confirmedNotRegistered = false;
+    if (requestError?.confirmedNotRegistered) {
+      try {
+        confirmedNotRegistered = await releaseUploadIntent(fetcher, token, photo);
+      } catch {
+        confirmedNotRegistered = false;
+      }
+    }
     if (requestError && isIntentExpiry(requestError)) {
       const delay = calculateRetryDelay(photo.attempts, random);
       await store.updateClaimedPhoto(photo.id, claimId, {
@@ -537,7 +569,7 @@ async function processClaimedPhoto(
         cloudinaryUploadedAt: undefined,
       });
       photoSyncChannel.publish({ type: "upload-failed", cameraPassId: photo.cameraPassId, photoId: photo.id });
-      return requestError?.confirmedNotRegistered ? "retry-confirmed" : "retry";
+      return confirmedNotRegistered ? "retry-confirmed" : "retry";
     }
     if (!requestError || isRetryableStatus(requestError.status)) {
       const delay = calculateRetryDelay(photo.attempts, random);
@@ -555,9 +587,17 @@ async function processClaimedPhoto(
         nextRetryAt: new Date(now().getTime() + delay).toISOString(),
         claimId: undefined,
         claimExpiresAt: undefined,
+        ...(confirmedNotRegistered ? {
+          uploadIntentId: undefined,
+          uploadIntentExpiresAt: undefined,
+          cloudinaryPublicId: undefined,
+          cloudinarySecureUrl: undefined,
+          cloudinaryUploadedAt: undefined,
+          preferServerFallback: undefined,
+        } : {}),
       });
       photoSyncChannel.publish({ type: "upload-failed", cameraPassId: photo.cameraPassId, photoId: photo.id });
-      return requestError?.confirmedNotRegistered ? "retry-confirmed" : "retry";
+      return confirmedNotRegistered ? "retry-confirmed" : "retry";
     }
     await store.updateClaimedPhoto(photo.id, claimId, {
       status: "failed",

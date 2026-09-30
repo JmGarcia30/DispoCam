@@ -296,13 +296,15 @@ describe("photo synchronization", () => {
       .mockResolvedValueOnce(json({ error: { code: "cloudinary_asset_not_found", message: "Not found" } }, 422))
       .mockRejectedValueOnce(new TypeError("Proxy response lost"))
       .mockResolvedValueOnce(signed())
-      .mockResolvedValueOnce(signed());
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(json({ data: { released: true } }));
     const result = await syncCameraPhotos(PASS_ID, TOKEN, {
       ...options(fetcher), iosXhrEnabled: () => true, xhrFactory: xhrFactory("network"), reconciliationDelay: async () => undefined,
     });
     expect(result).toMatchObject({ status: "retry-scheduled", uploaded: 0, confirmedNotRegistered: true });
     expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith("/uploads/sign"))).toHaveLength(3);
-    expect(await store.getPhoto(PHOTO_ID)).toMatchObject({ id: PHOTO_ID, failureKind: "retryable" });
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith("/uploads/release"))).toHaveLength(1);
+    expect(await store.getPhoto(PHOTO_ID)).toMatchObject({ id: PHOTO_ID, failureKind: "retryable", uploadIntentId: undefined });
   });
 
   it("attempts XHR direct for four sequential iOS uploads", async () => {

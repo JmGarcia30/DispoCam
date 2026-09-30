@@ -17,7 +17,7 @@ import { NeedsAttentionModal } from "@/components/needs-attention-modal";
 import { PwaInstallBanner } from "@/components/pwa-install-banner";
 import { ServiceWorkerUpdateBanner } from "@/components/service-worker-update-banner";
 import { CameraIcon, CheckIcon, FlashIcon, FlipCameraIcon } from "@/components/icons";
-import { canStartCountedCapture, finalizeOnlineCaptureOutcome, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
+import { canStartCountedCapture, finalizeOnlineCaptureOutcome, sessionRemainingShots, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
 import { CAMERA_FILTERS, DEFAULT_CAMERA_FILTER, getCameraFilterPreset, type CameraFilter } from "@/lib/camera/filters";
 
 interface DisposableCameraProps {
@@ -71,13 +71,14 @@ export function DisposableCamera({
       const response = await fetchWithTimeout(fetch, `/api/camera/${encodeURIComponent(token)}`, { cache: "no-store" }, NETWORK_TIMEOUTS.cameraPassMs);
       if (!response.ok) return null;
       const payload = await response.json();
-      if (typeof payload?.data?.shots_remaining !== "number") return null;
+      if (typeof payload?.data?.shots_remaining !== "number" || typeof payload?.data?.shot_limit !== "number" || typeof payload?.data?.shots_used !== "number") return null;
+      const remaining = sessionRemainingShots(payload.data);
       onSessionUpdated({
         ...session,
-        serverRemainingShots: payload.data.shots_remaining,
+        serverRemainingShots: remaining,
         resolvedAt: new Date().toISOString(),
       });
-      return payload.data.shots_remaining;
+      return remaining;
     } catch {
       return null;
     }

@@ -61,6 +61,10 @@ export interface Database {
         };
         Returns: RegisteredPhoto[];
       };
+      release_upload_intent: {
+        Args: { p_token_hash: string; p_intent_id: string; p_client_upload_id: string };
+        Returns: boolean;
+      };
       set_camera_pass_guest_name: {
         Args: { p_token_hash: string; p_display_name: string };
         Returns: string;

@@ -14,6 +14,7 @@ import { createDemoCameraSession } from "@/lib/camera/demo-session";
 import { saveGuestDisplayName } from "@/lib/camera/guest-name";
 import { fetchWithTimeout } from "@/lib/network/fetch-timeout";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
+import { sessionRemainingShots } from "@/lib/camera/online-capture-policy";
 
 interface PassApiResponse {
   data: {
@@ -24,6 +25,9 @@ interface PassApiResponse {
     guest_id: string;
     guest_name: string | null;
     shots_remaining: number;
+    shot_limit: number;
+    shots_used: number;
+    shots_reserved: number;
     expires_at: string | null;
     requires_online_capture: boolean;
   };
@@ -99,7 +103,7 @@ export function CameraShell({ pageMode }: { pageMode: CameraPageMode }) {
             eventDate: payload.data.event_date,
             guestId: payload.data.guest_id,
             guestName: payload.data.guest_name,
-            serverRemainingShots: payload.data.shots_remaining,
+            serverRemainingShots: sessionRemainingShots(payload.data),
             maxUploadBytes: payload.capabilities.maxUploadBytes,
             requiresOnlineCapture: payload.data.requires_online_capture,
             expiresAt: payload.data.expires_at,

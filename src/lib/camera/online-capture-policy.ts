@@ -14,7 +14,26 @@ export function visibleShotsRemaining(
   serverRemainingShots: number,
   offlineFirstRemainingShots: number,
 ): number {
-  return requiresOnlineCapture ? Math.max(0, serverRemainingShots) : offlineFirstRemainingShots;
+  return requiresOnlineCapture
+    ? Math.max(0, Math.min(serverRemainingShots, offlineFirstRemainingShots))
+    : offlineFirstRemainingShots;
+}
+
+export function registeredRemaining(input: { shot_limit: number; shots_used: number }): number {
+  return Math.max(0, input.shot_limit - input.shots_used);
+}
+
+export function availableCapacity(input: { shot_limit: number; shots_used: number; shots_reserved: number }): number {
+  return Math.max(0, input.shot_limit - input.shots_used - input.shots_reserved);
+}
+
+export function sessionRemainingShots(input: {
+  requires_online_capture: boolean;
+  shot_limit: number;
+  shots_used: number;
+  shots_remaining: number;
+}): number {
+  return input.requires_online_capture ? registeredRemaining(input) : Math.max(0, input.shots_remaining);
 }
 
 export function shotsAfterRegistration(serverRemainingShots: number, registered: boolean): number {

@@ -165,6 +165,16 @@ export class OfflinePhotoStore {
     return keys.length;
   }
 
+  async deletePhotosBeforeResetGeneration(cameraPassId: string, resetGeneration: number): Promise<number> {
+    const database = await this.getDatabase();
+    const transaction = database.transaction("photos", "readwrite");
+    const photos = await transaction.store.index("by-pass").getAll(cameraPassId);
+    const stale = photos.filter((photo) => (photo.resetGeneration ?? 0) < resetGeneration);
+    for (const photo of stale) await transaction.store.delete(photo.id);
+    await transaction.done;
+    return stale.length;
+  }
+
   async claimNextPhoto(
     cameraPassId: string,
     claimId: string,

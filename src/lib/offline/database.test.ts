@@ -6,7 +6,7 @@ import { openDB } from "idb";
 const PASS_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_PASS_ID = "22222222-2222-4222-8222-222222222222";
 
-function input(id: string, cameraPassId = PASS_ID) {
+function input(id: string, cameraPassId = PASS_ID, resetGeneration = 0) {
   return {
     id,
     cameraPassId,
@@ -14,6 +14,7 @@ function input(id: string, cameraPassId = PASS_ID) {
     capturedAt: "2026-09-29T10:00:00.000Z",
     width: 1200,
     height: 900,
+    resetGeneration,
   };
 }
 
@@ -96,6 +97,17 @@ describe("OfflinePhotoStore", () => {
     expect(await store.getPhoto(original.id)).toMatchObject({ id: original.id, status: "pending", image: expect.any(Blob) });
     expect((await store.getPhoto(original.id))?.claimId).toBeUndefined();
     expect((await store.getPhoto(original.id))?.nextRetryAt).toBeUndefined();
+  });
+
+  it("clears only older-generation photos for the reset camera pass", async () => {
+    const stale = await store.storePhoto(input(crypto.randomUUID(), PASS_ID, 1));
+    const current = await store.storePhoto(input(crypto.randomUUID(), PASS_ID, 2));
+    const otherPass = await store.storePhoto(input(crypto.randomUUID(), OTHER_PASS_ID, 0));
+
+    expect(await store.deletePhotosBeforeResetGeneration(PASS_ID, 2)).toBe(1);
+    expect(await store.getPhoto(stale.id)).toBeUndefined();
+    expect(await store.getPhoto(current.id)).toBeDefined();
+    expect(await store.getPhoto(otherPass.id)).toBeDefined();
   });
 
   it("clears local test photos only for the requested camera pass", async () => {

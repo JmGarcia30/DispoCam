@@ -30,6 +30,7 @@ interface PassApiResponse {
     shots_reserved: number;
     expires_at: string | null;
     requires_online_capture: boolean;
+    reset_generation: number;
   };
   capabilities: { maxUploadBytes: number };
 }
@@ -95,6 +96,9 @@ export function CameraShell({ pageMode }: { pageMode: CameraPageMode }) {
           const response = await fetchWithTimeout(fetch, `/api/camera/${encodeURIComponent(token)}`, { cache: "no-store" }, NETWORK_TIMEOUTS.cameraPassMs);
           if (!response.ok) throw new Error("Camera pass is unavailable.");
           const payload = (await response.json()) as PassApiResponse;
+          if ((payload.data.reset_generation ?? 0) > (cached?.resetGeneration ?? 0)) {
+            await offlinePhotoStore.deletePhotosBeforeResetGeneration(payload.data.pass_id, payload.data.reset_generation);
+          }
           const session: OfflineCameraSession = {
             tokenFingerprint: fingerprint,
             cameraPassId: payload.data.pass_id,
@@ -108,6 +112,7 @@ export function CameraShell({ pageMode }: { pageMode: CameraPageMode }) {
             requiresOnlineCapture: payload.data.requires_online_capture,
             expiresAt: payload.data.expires_at,
             resolvedAt: new Date().toISOString(),
+            resetGeneration: payload.data.reset_generation ?? 0,
           };
           await offlinePhotoStore.saveCameraSession(session);
           if (active) {

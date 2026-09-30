@@ -461,6 +461,7 @@ async function processClaimedPhoto(
         cloudinaryPublicId: signed.data.upload.publicId,
         cloudinarySecureUrl: undefined,
         cloudinaryUploadedAt: undefined,
+        capacityReserved: true,
       });
 
       const iosXhr = iosXhrEnabled();
@@ -594,6 +595,7 @@ async function processClaimedPhoto(
           cloudinarySecureUrl: undefined,
           cloudinaryUploadedAt: undefined,
           preferServerFallback: undefined,
+          capacityReserved: false,
         } : {}),
       });
       photoSyncChannel.publish({ type: "upload-failed", cameraPassId: photo.cameraPassId, photoId: photo.id });

@@ -20,6 +20,8 @@ export interface OfflinePhoto {
   width: number;
   height: number;
   byteSize: number;
+  resetGeneration?: number;
+  capacityReserved?: boolean;
   lastError?: string;
   failureCode?: string;
   failureStage?: SyncFailureStage;
@@ -48,6 +50,7 @@ export interface NewOfflinePhoto {
   capturedAt: string;
   width: number;
   height: number;
+  resetGeneration?: number;
 }
 
 export interface OfflineCameraSession {
@@ -66,4 +69,5 @@ export interface OfflineCameraSession {
   maxUploadBytes: number;
   expiresAt: string | null;
   resolvedAt: string;
+  resetGeneration?: number;
 }

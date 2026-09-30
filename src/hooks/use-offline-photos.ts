@@ -7,7 +7,7 @@ import { calculateEffectiveRemainingShots, countLocalPendingShots } from "@/lib/
 import type { OfflinePhoto } from "@/lib/offline/types";
 import { photoSyncChannel } from "@/lib/offline/channel";
 
-export function useOfflinePhotos(cameraPassId: string, serverRemainingShots: number) {
+export function useOfflinePhotos(cameraPassId: string, serverRemainingShots: number, resetGeneration = 0) {
   const [photos, setPhotos] = useState<OfflinePhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -40,12 +40,13 @@ export function useOfflinePhotos(cameraPassId: string, serverRemainingShots: num
       const saved = await preprocessAndStoreCapture(cameraPassId, image, {
         maxBytes: maxUploadBytes,
         ...processing,
+        resetGeneration,
         serverRemainingShots,
       });
       await refresh();
       return saved;
     },
-    [cameraPassId, refresh, serverRemainingShots],
+    [cameraPassId, refresh, resetGeneration, serverRemainingShots],
   );
 
   return {

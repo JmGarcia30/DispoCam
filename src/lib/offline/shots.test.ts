@@ -20,4 +20,11 @@ describe("offline shot accounting", () => {
       ]),
     ).toBe(3);
   });
+
+  it("does not reserve shutter capacity for a definitively released local photo", () => {
+    expect(countLocalPendingShots([
+      { status: "failed", capacityReserved: false },
+      { status: "failed", capacityReserved: true },
+    ])).toBe(1);
+  });
 });

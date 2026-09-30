@@ -30,7 +30,8 @@ vi.mock("@/lib/offline/database", () => ({
 vi.mock("@/lib/offline/sync", () => ({ syncCameraPhotos }));
 vi.mock("@/lib/offline/manual-retry", () => ({ preparePhotosForManualRetry: vi.fn() }));
 
-import { usePhotoSync } from "@/hooks/use-photo-sync";
+import { selectAutoRetryPhoto, subscribeAutoRetryTriggers, usePhotoSync } from "@/hooks/use-photo-sync";
+import type { OfflinePhoto } from "@/lib/offline/types";
 
 describe("usePhotoSync online capture", () => {
   beforeEach(() => {
@@ -57,5 +58,33 @@ describe("usePhotoSync online capture", () => {
     expect(syncCameraPhotos.mock.calls.map(([, , options]) => options.photoIds)).toEqual(
       photoIds.map((photoId) => [photoId]),
     );
+  });
+
+  it("selects the same due clientUploadId for automatic retry without selecting a concurrent upload", () => {
+    const due = { id: "same-client-upload-id", status: "failed", failureKind: "retryable", nextRetryAt: "2026-10-01T00:00:02.000Z" } as OfflinePhoto;
+    const future = { id: "future", status: "failed", failureKind: "retryable", nextRetryAt: "2026-10-01T00:00:20.000Z" } as OfflinePhoto;
+    const uploading = { id: "active", status: "uploading" } as OfflinePhoto;
+    expect(selectAutoRetryPhoto([uploading, due, future], Date.parse("2026-10-01T00:00:05.000Z"))?.id).toBe("same-client-upload-id");
+    expect(selectAutoRetryPhoto([future], Date.parse("2026-10-01T00:00:05.000Z"))).toBeUndefined();
+    expect(selectAutoRetryPhoto([future], Date.parse("2026-10-01T00:00:05.000Z"), true)?.id).toBe("future");
+  });
+
+  it("requests online-only retry after reconnect, focus, and visible-page return", () => {
+    const windowTarget = new EventTarget();
+    const documentTarget = new EventTarget() as EventTarget & { visibilityState: DocumentVisibilityState };
+    documentTarget.visibilityState = "visible";
+    const retry = vi.fn();
+    const unsubscribe = subscribeAutoRetryTriggers(
+      windowTarget as unknown as Window,
+      documentTarget as unknown as Document,
+      retry,
+    );
+    windowTarget.dispatchEvent(new Event("online"));
+    windowTarget.dispatchEvent(new Event("focus"));
+    documentTarget.dispatchEvent(new Event("visibilitychange"));
+    expect(retry).toHaveBeenCalledTimes(3);
+    unsubscribe();
+    windowTarget.dispatchEvent(new Event("online"));
+    expect(retry).toHaveBeenCalledTimes(3);
   });
 });

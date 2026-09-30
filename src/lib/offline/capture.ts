@@ -9,6 +9,7 @@ export interface StoreCaptureOptions extends ImageProcessingOptions {
   capturedAt?: string;
   store?: OfflinePhotoStore;
   serverRemainingShots?: number;
+  resetGeneration?: number;
 }
 
 /** The UUID is assigned once here and persisted with the Blob for all future retries. */
@@ -27,6 +28,7 @@ export async function preprocessAndStoreCapture(
     capturedAt,
     width: processed.width,
     height: processed.height,
+    resetGeneration: options.resetGeneration ?? 0,
   };
   const store = options.store ?? offlinePhotoStore;
   const saved = await (options.serverRemainingShots === undefined

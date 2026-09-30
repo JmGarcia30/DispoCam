@@ -16,6 +16,7 @@ export interface CameraPassInfo {
   shots_remaining: number;
   expires_at: string | null;
   requires_online_capture: boolean;
+  reset_generation: number;
 }
 
 export interface UploadIntent {

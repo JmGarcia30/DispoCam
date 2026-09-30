@@ -36,6 +36,16 @@ export function sessionRemainingShots(input: {
   return input.requires_online_capture ? registeredRemaining(input) : Math.max(0, input.shots_remaining);
 }
 
+export function onlineCaptureUiState(registeredRemainingShots: number, pendingLocal: number) {
+  const displayed = Math.max(0, registeredRemainingShots);
+  const pending = Math.max(0, pendingLocal);
+  return {
+    displayed,
+    usableCapacity: Math.max(0, displayed - pending),
+    rollFinished: displayed === 0 && pending === 0,
+  };
+}
+
 export function shotsAfterRegistration(serverRemainingShots: number, registered: boolean): number {
   return registered ? Math.max(0, serverRemainingShots - 1) : Math.max(0, serverRemainingShots);
 }
@@ -45,12 +55,10 @@ export async function finalizeOnlineCaptureOutcome(input: {
   confirmedNotRegistered?: boolean;
   previousShots: number;
   refreshShots: () => Promise<number | null>;
-  deleteLocal: () => Promise<void>;
 }): Promise<"success" | "failed" | "checking"> {
   const authoritativeShots = await input.refreshShots();
   if (input.uploaded === 1) return "success";
   if (input.confirmedNotRegistered && authoritativeShots === input.previousShots) {
-    await input.deleteLocal();
     return "failed";
   }
   return "checking";

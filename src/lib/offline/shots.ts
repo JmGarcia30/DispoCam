@@ -4,8 +4,8 @@ export function isLocallyOutstanding(photo: Pick<OfflinePhoto, "status">): boole
   return photo.status !== "uploaded";
 }
 
-export function countLocalPendingShots(photos: ReadonlyArray<Pick<OfflinePhoto, "status">>): number {
-  return photos.filter(isLocallyOutstanding).length;
+export function countLocalPendingShots(photos: ReadonlyArray<Pick<OfflinePhoto, "status" | "capacityReserved">>): number {
+  return photos.filter((photo) => isLocallyOutstanding(photo) && photo.capacityReserved !== false).length;
 }
 
 export function calculateEffectiveRemainingShots(serverRemainingShots: number, localPendingShots: number): number {

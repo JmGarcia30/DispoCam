@@ -17,7 +17,7 @@ import { NeedsAttentionModal } from "@/components/needs-attention-modal";
 import { PwaInstallBanner } from "@/components/pwa-install-banner";
 import { ServiceWorkerUpdateBanner } from "@/components/service-worker-update-banner";
 import { CameraIcon, CheckIcon, FlashIcon, FlipCameraIcon } from "@/components/icons";
-import { canStartCountedCapture, finalizeOnlineCaptureOutcome, sessionRemainingShots, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
+import { canStartCountedCapture, finalizeOnlineCaptureOutcome, onlineCaptureUiState, sessionRemainingShots, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
 import { CAMERA_FILTERS, DEFAULT_CAMERA_FILTER, getCameraFilterPreset, type CameraFilter } from "@/lib/camera/filters";
 
 interface DisposableCameraProps {
@@ -57,9 +57,9 @@ export function DisposableCamera({
   const [showAttentionModal, setShowAttentionModal] = useState(false);
 
   const network = useNetworkStatus();
-  const photos = useOfflinePhotos(session.cameraPassId, session.serverRemainingShots);
-  const sync = usePhotoSync(session.cameraPassId, token, pageMode);
   const onlineCaptureRequired = wedding.requiresOnlineCapture;
+  const photos = useOfflinePhotos(session.cameraPassId, session.serverRemainingShots, session.resetGeneration ?? 0);
+  const sync = usePhotoSync(session.cameraPassId, token, pageMode, onlineCaptureRequired);
 
   const failedPhotos = photos.photos.filter((photo) => photo.status !== "uploaded");
   const attentionPhotos = failedPhotos.filter((photo) => photo.failureKind === "attention");
@@ -73,16 +73,24 @@ export function DisposableCamera({
       const payload = await response.json();
       if (typeof payload?.data?.shots_remaining !== "number" || typeof payload?.data?.shot_limit !== "number" || typeof payload?.data?.shots_used !== "number") return null;
       const remaining = sessionRemainingShots(payload.data);
-      onSessionUpdated({
+      const nextResetGeneration = payload.data.reset_generation ?? 0;
+      if (nextResetGeneration > (session.resetGeneration ?? 0)) {
+        await offlinePhotoStore.deletePhotosBeforeResetGeneration(session.cameraPassId, nextResetGeneration);
+        await photos.refresh();
+      }
+      const updatedSession: OfflineCameraSession = {
         ...session,
         serverRemainingShots: remaining,
         resolvedAt: new Date().toISOString(),
-      });
+        resetGeneration: nextResetGeneration,
+      };
+      await offlinePhotoStore.saveCameraSession(updatedSession);
+      onSessionUpdated(updatedSession);
       return remaining;
     } catch {
       return null;
     }
-  }, [onSessionUpdated, session, token]);
+  }, [onSessionUpdated, photos, session, token]);
 
   // Start or switch camera
   const initCamera = useCallback(
@@ -208,12 +216,9 @@ export function DisposableCamera({
           confirmedNotRegistered: result.confirmedNotRegistered,
           previousShots: session.serverRemainingShots,
           refreshShots: refreshAuthoritativeShots,
-          deleteLocal: async () => {
-            await offlinePhotoStore.deletePhoto(saved.id);
-            await photos.refresh();
-          },
         });
         if (outcome !== "success") {
+          if (outcome === "failed") await photos.refresh();
           setUploadNotice(outcome === "failed"
             ? "Photo wasn't uploaded. Your shot was not used. Please try again."
             : "Checking photo…");
@@ -236,11 +241,20 @@ export function DisposableCamera({
   }, [flashMode, hardwareTorchAvailable, network, onlineCaptureRequired, photos, refreshAuthoritativeShots, saving, selectedFilter, session, sync]);
 
   // Shot count styling
-  const shotsLeft = visibleShotsRemaining(onlineCaptureRequired, session.serverRemainingShots, photos.effectiveRemainingShots);
+  const onlineUi = onlineCaptureUiState(session.serverRemainingShots, photos.localPendingShots);
+  const usableCapacity = onlineCaptureRequired
+    ? onlineUi.usableCapacity
+    : visibleShotsRemaining(false, session.serverRemainingShots, photos.effectiveRemainingShots);
+  const shotsLeft = onlineCaptureRequired ? onlineUi.displayed : usableCapacity;
+  const showRollFinished = onlineCaptureRequired ? onlineUi.rollFinished : shotsLeft === 0;
+  const finishingPending = onlineCaptureRequired && photos.localPendingShots > 0 && usableCapacity === 0;
   let counterText = `${shotsLeft} SHOTS LEFT`;
   let isWarning = false;
 
-  if (shotsLeft === 1) {
+  if (finishingPending) {
+    counterText = `Finishing ${photos.localPendingShots} photo${photos.localPendingShots === 1 ? "" : "s"}`;
+    isWarning = true;
+  } else if (shotsLeft === 1) {
     counterText = "LAST SHOT";
     isWarning = true;
   } else if (shotsLeft === 0) {
@@ -554,7 +568,7 @@ export function DisposableCamera({
               {shotsLeft.toString().padStart(2, "0")}
             </span>
             <span style={{ fontSize: "10px", fontWeight: 600, opacity: 0.85 }}>
-              {shotsLeft === 1 ? "LAST SHOT" : shotsLeft === 0 ? "EXHAUSTED" : "SHOTS LEFT"}
+              {finishingPending ? "FINISHING" : shotsLeft === 1 ? "LAST SHOT" : shotsLeft === 0 ? "EXHAUSTED" : "SHOTS LEFT"}
             </span>
           </div>
 
@@ -608,12 +622,12 @@ export function DisposableCamera({
               );
             })}
           </div>
-          {shotsLeft > 0 ? (
+          {!showRollFinished ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
               <button
                 type="button"
                 className="shutter-button"
-                disabled={!canStartCountedCapture({ requiresOnlineCapture: onlineCaptureRequired, backendOnline: !network.offline, cameraReady: cameraActive, saving, hasShots: photos.canCapture })}
+                disabled={!canStartCountedCapture({ requiresOnlineCapture: onlineCaptureRequired, backendOnline: !network.offline, cameraReady: cameraActive, saving, hasShots: usableCapacity > 0 && photos.canCapture })}
                 onClick={() => void handleShutter()}
                 aria-label={saving ? "Saving photo…" : `Take photo. ${counterText}.`}
               >
@@ -635,6 +649,8 @@ export function DisposableCamera({
                     : sync.savingUpload
                     ? "SAVING…"
                     : `UPLOADING…${sync.uploadPercent === null ? "" : ` ${sync.uploadPercent}%`}`
+                  : finishingPending
+                    ? `FINISHING ${photos.localPendingShots} PHOTO${photos.localPendingShots === 1 ? "" : "S"}…`
                   : onlineCaptureRequired && network.offline
                     ? "WI-FI OR MOBILE DATA REQUIRED"
                     : "SHUTTER"}

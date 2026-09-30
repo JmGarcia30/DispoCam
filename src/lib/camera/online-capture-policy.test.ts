@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { availableCapacity, canStartCountedCapture, finalizeOnlineCaptureOutcome, registeredRemaining, sessionRemainingShots, shotsAfterRegistration, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
+import { availableCapacity, canStartCountedCapture, finalizeOnlineCaptureOutcome, onlineCaptureUiState, registeredRemaining, sessionRemainingShots, shotsAfterRegistration, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
 import { resolveWeddingConfig } from "@/lib/wedding/config";
 
 describe("online-only event capture policy", () => {
@@ -42,6 +42,12 @@ describe("online-only event capture policy", () => {
     expect(visibleShotsRemaining(true, 1, 0)).toBe(0);
   });
 
+  it("displays registered shots without declaring the roll finished while two photos are pending", () => {
+    expect(onlineCaptureUiState(2, 2)).toEqual({ displayed: 2, usableCapacity: 0, rollFinished: false });
+    expect(onlineCaptureUiState(0, 2)).toEqual({ displayed: 0, usableCapacity: 0, rollFinished: false });
+    expect(onlineCaptureUiState(0, 0)).toEqual({ displayed: 0, usableCapacity: 0, rollFinished: true });
+  });
+
   it("restores the last reserved shot after definitive failure and consumes it only after registration", () => {
     const before = registeredRemaining({ shot_limit: 10, shots_used: 8 });
     expect(before).toBe(2);
@@ -56,15 +62,13 @@ describe("online-only event capture policy", () => {
   });
 
   it.each([
-    { uploaded: 1, confirmedNotRegistered: false, refreshed: 9, expected: "success", deleted: 0 },
-    { uploaded: 0, confirmedNotRegistered: true, refreshed: 10, expected: "failed", deleted: 1 },
-    { uploaded: 0, confirmedNotRegistered: false, refreshed: 10, expected: "checking", deleted: 0 },
-    { uploaded: 0, confirmedNotRegistered: true, refreshed: 9, expected: "checking", deleted: 0 },
-  ])("refreshes authoritative shots after every $expected outcome", async ({ uploaded, confirmedNotRegistered, refreshed, expected, deleted }) => {
+    { uploaded: 1, confirmedNotRegistered: false, refreshed: 9, expected: "success" },
+    { uploaded: 0, confirmedNotRegistered: true, refreshed: 10, expected: "failed" },
+    { uploaded: 0, confirmedNotRegistered: false, refreshed: 10, expected: "checking" },
+    { uploaded: 0, confirmedNotRegistered: true, refreshed: 9, expected: "checking" },
+  ])("refreshes authoritative shots after every $expected outcome", async ({ uploaded, confirmedNotRegistered, refreshed, expected }) => {
     const refreshShots = vi.fn().mockResolvedValue(refreshed);
-    const deleteLocal = vi.fn().mockResolvedValue(undefined);
-    await expect(finalizeOnlineCaptureOutcome({ uploaded, confirmedNotRegistered, previousShots: 10, refreshShots, deleteLocal })).resolves.toBe(expected);
+    await expect(finalizeOnlineCaptureOutcome({ uploaded, confirmedNotRegistered, previousShots: 10, refreshShots })).resolves.toBe(expected);
     expect(refreshShots).toHaveBeenCalledTimes(1);
-    expect(deleteLocal).toHaveBeenCalledTimes(deleted);
   });
 });

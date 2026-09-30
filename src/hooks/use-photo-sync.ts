@@ -6,6 +6,7 @@ import { offlinePhotoStore } from "@/lib/offline/database";
 import { syncCameraPhotos, type SyncBatchResult } from "@/lib/offline/sync";
 import { preparePhotosForManualRetry } from "@/lib/offline/manual-retry";
 import type { CameraPageMode, OfflinePhoto } from "@/lib/offline/types";
+import { uploadOnlinePhotoSimple } from "@/lib/online/simple-upload";
 
 export type PhotoSyncUiState = "idle" | "checking-connection" | "uploading" | "retrying" | "waiting-for-connection" | "retry-scheduled" | "needs-attention";
 
@@ -65,7 +66,9 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
     }
     if (manual) await preparePhotosForManualRetry(cameraPassId, photoId);
     if (canUpdateUi()) setState(manual ? "retrying" : "uploading");
-    const result = await syncCameraPhotos(cameraPassId, cameraToken, {
+    const result = onlineOnly
+      ? await uploadOnlinePhotoSimple(cameraPassId, cameraToken, photoId)
+      : await syncCameraPhotos(cameraPassId, cameraToken, {
       canReach: async () => true,
       pageMode,
       photoIds: [photoId],
@@ -76,9 +79,9 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
         }
       },
       onReconciliationState: (checking) => { if (canUpdateUi()) setCheckingPhoto(checking); },
-    });
+      });
     return canUpdateUi() ? applyResult(result) : result;
-  }, [applyResult, cameraPassId, cameraToken, checkNetwork, pageMode]);
+  }, [applyResult, cameraPassId, cameraToken, checkNetwork, onlineOnly, pageMode]);
 
   const run = useCallback((photoId: string, foreground = false, manual = false) => {
     const active = activeRuns.current.get(photoId);
@@ -132,14 +135,6 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
 
   const notifyPhotoCaptured = useCallback((photoId: string) => run(photoId, true), [run]);
 
-  const retryOutstanding = useCallback(async (force = false) => {
-    if (!onlineOnly || !cameraToken) return;
-    const outstanding = await offlinePhotoStore.getOutstandingPhotos(cameraPassId);
-    const available = outstanding.filter((photo) => !activeRuns.current.has(photo.id));
-    const photo = selectAutoRetryPhoto(available, Date.now(), force);
-    if (photo) await run(photo.id, false);
-  }, [cameraPassId, cameraToken, onlineOnly, run]);
-
   useEffect(() => {
     let active = true;
     void offlinePhotoStore.recoverUploadingPhotos(cameraPassId).then(async () => {
@@ -152,34 +147,13 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
 
   useEffect(() => {
     if (!networkOnline) return;
-    void retryOutstanding(true);
-  }, [networkOnline, retryOutstanding]);
-
-  useEffect(() => {
-    if (!onlineOnly) return;
-    const retry = () => void retryOutstanding(true);
-    return subscribeAutoRetryTriggers(window, document, retry);
-  }, [onlineOnly, retryOutstanding]);
-
-  useEffect(() => {
-    if (!onlineOnly || !cameraToken) return;
-    let cancelled = false;
-    let timer: number | undefined;
+    if (onlineOnly) return;
+    let active = true;
     void offlinePhotoStore.getOutstandingPhotos(cameraPassId).then((outstanding) => {
-      if (cancelled || !outstanding.length) return;
-      const next = outstanding
-        .filter((photo) => photo.failureKind !== "attention" && photo.status !== "uploading")
-        .map((photo) => photo.nextRetryAt ? Date.parse(photo.nextRetryAt) : Date.now())
-        .sort((a, b) => a - b)[0];
-      if (next === undefined) return;
-      const delay = Math.min(20_000, Math.max(0, next - Date.now()));
-      timer = window.setTimeout(() => void retryOutstanding(false), delay);
+      if (active && outstanding.length) setState("retry-scheduled");
     });
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [cameraPassId, cameraToken, lastResult, onlineOnly, retryOutstanding]);
+    return () => { active = false; };
+  }, [cameraPassId, networkOnline, onlineOnly]);
 
   const syncing = state === "uploading" || state === "checking-connection" || state === "retrying";
   return { state, syncing, reachable: networkOnline, lastResult, progress, uploadPercent, savingUpload, checkingPhoto, queueFailure, run, manualRetry, notifyPhotoCaptured };

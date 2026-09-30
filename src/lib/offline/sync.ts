@@ -31,6 +31,7 @@ export interface SyncBatchResult {
   nextRetryAt?: string;
   diagnostic?: SyncDiagnostic;
   confirmedNotRegistered?: boolean;
+  authoritativeShots?: { shotsUsed: number; shotLimit: number; registeredRemaining: number };
 }
 
 export interface SyncDiagnostic {

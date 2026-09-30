@@ -66,6 +66,29 @@ export interface Database {
         Args: { p_token_hash: string; p_intent_id: string; p_client_upload_id: string };
         Returns: boolean;
       };
+      register_simple_photo_upload: {
+        Args: {
+          p_token_hash: string;
+          p_client_upload_id: string;
+          p_cloudinary_public_id: string;
+          p_secure_url: string;
+          p_width: number;
+          p_height: number;
+          p_captured_at: string;
+        };
+        Returns: Array<{
+          photo_id: string;
+          client_upload_id: string;
+          cloudinary_public_id: string;
+          secure_url: string;
+          width: number;
+          height: number;
+          captured_at: string;
+          shots_used: number;
+          shot_limit: number;
+          registered_remaining: number;
+        }>;
+      };
       set_camera_pass_guest_name: {
         Args: { p_token_hash: string; p_display_name: string };
         Returns: string;

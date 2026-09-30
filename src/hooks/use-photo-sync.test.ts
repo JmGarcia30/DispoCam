@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { checkNetwork, syncCameraPhotos } = vi.hoisted(() => ({
+const { checkNetwork, syncCameraPhotos, uploadOnlinePhotoSimple } = vi.hoisted(() => ({
   checkNetwork: vi.fn(),
   syncCameraPhotos: vi.fn(),
+  uploadOnlinePhotoSimple: vi.fn(),
 }));
 
 vi.mock("react", async (importOriginal) => {
@@ -28,6 +29,7 @@ vi.mock("@/lib/offline/database", () => ({
 }));
 
 vi.mock("@/lib/offline/sync", () => ({ syncCameraPhotos }));
+vi.mock("@/lib/online/simple-upload", () => ({ uploadOnlinePhotoSimple }));
 vi.mock("@/lib/offline/manual-retry", () => ({ preparePhotosForManualRetry: vi.fn() }));
 
 import { selectAutoRetryPhoto, subscribeAutoRetryTriggers, usePhotoSync } from "@/hooks/use-photo-sync";
@@ -43,6 +45,7 @@ describe("usePhotoSync online capture", () => {
       needsAttention: 0,
       remaining: 0,
     });
+    uploadOnlinePhotoSimple.mockReset().mockResolvedValue({ status: "complete", uploaded: 1, retryScheduled: 0, needsAttention: 0, remaining: 0 });
   });
 
   it("uploads captures when React network state is checking but health checks succeed", async () => {
@@ -67,8 +70,9 @@ describe("usePhotoSync online capture", () => {
     const photoB = sync.notifyPhotoCaptured("photo-b");
     expect(photoB).not.toBe(photoA);
     await Promise.all([photoA, duplicateA, photoB]);
-    expect(syncCameraPhotos).toHaveBeenCalledTimes(2);
-    expect(syncCameraPhotos.mock.calls.map(([, , options]) => options.photoIds)).toEqual([["photo-a"], ["photo-b"]]);
+    expect(uploadOnlinePhotoSimple).toHaveBeenCalledTimes(2);
+    expect(syncCameraPhotos).not.toHaveBeenCalled();
+    expect(uploadOnlinePhotoSimple.mock.calls.map(([, , photoId]) => photoId)).toEqual(["photo-a", "photo-b"]);
   });
 
   it("selects the same due clientUploadId for automatic retry without selecting a concurrent upload", () => {

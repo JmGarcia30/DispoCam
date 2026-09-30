@@ -41,7 +41,7 @@ export function onlineCaptureUiState(registeredRemainingShots: number, pendingLo
   const pending = Math.max(0, pendingLocal);
   return {
     displayed,
-    usableCapacity: Math.max(0, displayed - pending),
+    usableCapacity: pending > 0 ? 0 : displayed,
     rollFinished: displayed === 0 && pending === 0,
   };
 }

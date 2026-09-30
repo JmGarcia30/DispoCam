@@ -7,8 +7,6 @@ import type { CameraPageMode, OfflineCameraSession } from "@/lib/offline/types";
 import { offlinePhotoStore } from "@/lib/offline/database";
 import { useOfflinePhotos } from "@/hooks/use-offline-photos";
 import { usePhotoSync } from "@/hooks/use-photo-sync";
-import { fetchWithTimeout } from "@/lib/network/fetch-timeout";
-import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import type { WeddingConfig } from "@/lib/wedding/config";
 import { SyncStatusBar } from "@/components/sync-status-bar";
@@ -17,7 +15,7 @@ import { NeedsAttentionModal } from "@/components/needs-attention-modal";
 import { PwaInstallBanner } from "@/components/pwa-install-banner";
 import { ServiceWorkerUpdateBanner } from "@/components/service-worker-update-banner";
 import { CameraIcon, CheckIcon, FlashIcon, FlipCameraIcon } from "@/components/icons";
-import { canStartCountedCapture, finalizeOnlineCaptureOutcome, onlineCaptureUiState, sessionRemainingShots, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
+import { canStartCountedCapture, onlineCaptureUiState, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
 import { CAMERA_FILTERS, DEFAULT_CAMERA_FILTER, getCameraFilterPreset, type CameraFilter } from "@/lib/camera/filters";
 
 interface DisposableCameraProps {
@@ -55,6 +53,7 @@ export function DisposableCamera({
   const [capturedFeedback, setCapturedFeedback] = useState(false);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [showAttentionModal, setShowAttentionModal] = useState(false);
+  const [retryPhotoId, setRetryPhotoId] = useState<string | null>(null);
 
   const network = useNetworkStatus();
   const onlineCaptureRequired = wedding.requiresOnlineCapture;
@@ -64,33 +63,7 @@ export function DisposableCamera({
   const failedPhotos = photos.photos.filter((photo) => photo.status !== "uploaded");
   const attentionPhotos = failedPhotos.filter((photo) => photo.failureKind === "attention");
   const retryablePhotos = failedPhotos.filter((photo) => photo.failureKind === "retryable");
-
-  const refreshAuthoritativeShots = useCallback(async (): Promise<number | null> => {
-    if (!token) return null;
-    try {
-      const response = await fetchWithTimeout(fetch, `/api/camera/${encodeURIComponent(token)}`, { cache: "no-store" }, NETWORK_TIMEOUTS.cameraPassMs);
-      if (!response.ok) return null;
-      const payload = await response.json();
-      if (typeof payload?.data?.shots_remaining !== "number" || typeof payload?.data?.shot_limit !== "number" || typeof payload?.data?.shots_used !== "number") return null;
-      const remaining = sessionRemainingShots(payload.data);
-      const nextResetGeneration = payload.data.reset_generation ?? 0;
-      if (nextResetGeneration > (session.resetGeneration ?? 0)) {
-        await offlinePhotoStore.deletePhotosBeforeResetGeneration(session.cameraPassId, nextResetGeneration);
-        await photos.refresh();
-      }
-      const updatedSession: OfflineCameraSession = {
-        ...session,
-        serverRemainingShots: remaining,
-        resolvedAt: new Date().toISOString(),
-        resetGeneration: nextResetGeneration,
-      };
-      await offlinePhotoStore.saveCameraSession(updatedSession);
-      onSessionUpdated(updatedSession);
-      return remaining;
-    } catch {
-      return null;
-    }
-  }, [onSessionUpdated, photos, session, token]);
+  const effectiveRetryPhotoId = retryPhotoId ?? (onlineCaptureRequired ? failedPhotos[0]?.id ?? null : null);
 
   // Start or switch camera
   const initCamera = useCallback(
@@ -205,25 +178,22 @@ export function DisposableCamera({
       const saved = await photos.saveCapture(
         image,
         session.maxUploadBytes,
-        onlineCaptureRequired ? { maxDimension: 1600, quality: 0.75 } : undefined,
+        onlineCaptureRequired ? { maxDimension: 1400, quality: 0.72 } : undefined,
       );
 
       // 5. Online-only events wait for authoritative registration before counting the shot.
       if (onlineCaptureRequired) {
         const result = await sync.notifyPhotoCaptured(saved.id);
-        const outcome = await finalizeOnlineCaptureOutcome({
-          uploaded: result.uploaded,
-          confirmedNotRegistered: result.confirmedNotRegistered,
-          previousShots: session.serverRemainingShots,
-          refreshShots: refreshAuthoritativeShots,
-        });
-        if (outcome !== "success") {
-          if (outcome === "failed") await photos.refresh();
-          setUploadNotice(outcome === "failed"
-            ? "Photo wasn't uploaded. Your shot was not used. Please try again."
-            : "Checking photo…");
+        if (result.uploaded !== 1 || !result.authoritativeShots) {
+          setRetryPhotoId(saved.id);
+          setUploadNotice("Upload failed — Retry");
           return;
         }
+        const updated = { ...session, serverRemainingShots: result.authoritativeShots.registeredRemaining, resolvedAt: new Date().toISOString() };
+        await offlinePhotoStore.saveCameraSession(updated);
+        onSessionUpdated(updated);
+        await photos.refresh();
+        setRetryPhotoId(null);
       } else {
         void sync.notifyPhotoCaptured(saved.id);
       }
@@ -238,7 +208,31 @@ export function DisposableCamera({
     } finally {
       setSaving(false);
     }
-  }, [flashMode, hardwareTorchAvailable, network, onlineCaptureRequired, photos, refreshAuthoritativeShots, saving, selectedFilter, session, sync]);
+  }, [flashMode, hardwareTorchAvailable, network, onlineCaptureRequired, onSessionUpdated, photos, saving, selectedFilter, session, sync]);
+
+  const retryOnlineUpload = useCallback(async () => {
+    if (!effectiveRetryPhotoId || saving) return;
+    setSaving(true);
+    setUploadNotice(null);
+    try {
+      const result = await sync.manualRetry(effectiveRetryPhotoId);
+      if (result.uploaded !== 1 || !result.authoritativeShots) {
+        setUploadNotice("Upload failed — Retry");
+        return;
+      }
+      const updated = { ...session, serverRemainingShots: result.authoritativeShots.registeredRemaining, resolvedAt: new Date().toISOString() };
+      await offlinePhotoStore.saveCameraSession(updated);
+      onSessionUpdated(updated);
+      await photos.refresh();
+      setRetryPhotoId(null);
+      setCapturedFeedback(true);
+      setTimeout(() => setCapturedFeedback(false), 1800);
+    } catch {
+      setUploadNotice("Upload failed — Retry");
+    } finally {
+      setSaving(false);
+    }
+  }, [effectiveRetryPhotoId, onSessionUpdated, photos, saving, session, sync]);
 
   // Shot count styling
   const onlineUi = onlineCaptureUiState(session.serverRemainingShots, photos.localPendingShots);
@@ -679,11 +673,16 @@ export function DisposableCamera({
           marginTop: "12px",
         }}
       >
-        {onlineCaptureRequired && (network.offline || uploadNotice) && (
+        {onlineCaptureRequired && (network.offline || uploadNotice || (effectiveRetryPhotoId && !saving)) && (
           <div role="status" style={{ maxWidth: "360px", textAlign: "center", color: "#F6C177", fontSize: "13px", lineHeight: 1.45 }}>
             <strong>{network.online ? "Upload failed" : "Internet connection required"}</strong><br />
-            {uploadNotice ?? "Connect to Wi-Fi or mobile data to take and upload photos."}
+            {uploadNotice ?? (effectiveRetryPhotoId ? "Upload failed — Retry" : "Connect to Wi-Fi or mobile data to take and upload photos.")}
           </div>
+        )}
+        {onlineCaptureRequired && effectiveRetryPhotoId && !saving && (
+          <button type="button" onClick={() => void retryOnlineUpload()} style={{ padding: "10px 18px", borderRadius: "999px", border: 0, fontWeight: 700, cursor: "pointer" }}>
+            Retry
+          </button>
         )}
         {!onlineCaptureRequired && <SyncStatusBar
           state={sync.state}

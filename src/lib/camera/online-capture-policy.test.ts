@@ -44,6 +44,7 @@ describe("online-only event capture policy", () => {
 
   it("displays registered shots without declaring the roll finished while two photos are pending", () => {
     expect(onlineCaptureUiState(2, 2)).toEqual({ displayed: 2, usableCapacity: 0, rollFinished: false });
+    expect(onlineCaptureUiState(4, 1)).toEqual({ displayed: 4, usableCapacity: 0, rollFinished: false });
     expect(onlineCaptureUiState(0, 2)).toEqual({ displayed: 0, usableCapacity: 0, rollFinished: false });
     expect(onlineCaptureUiState(0, 0)).toEqual({ displayed: 0, usableCapacity: 0, rollFinished: true });
   });

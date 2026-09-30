@@ -59,6 +59,7 @@ Success responses use `{ "data": ... }`. Errors use `{ "error": { "code", "messa
 ### Guest camera
 
 - `GET /api/camera/:token` returns wedding/guest display data, limit, used, reserved, remaining, and expiry.
+- `PATCH /api/camera/:token` accepts `{ "displayName": "Taylor" }` once for an unnamed guest. The pass bearer can name only the guest attached to that pass.
 - `POST /api/camera/:token/uploads/sign` accepts `{ "clientUploadId": "UUID" }` and returns an intent plus signed Cloudinary fields. Post `api_key`, `timestamp`, `public_id`, `overwrite`, `context`, `signature`, and the image `file` as multipart form data to `uploadUrl`.
 - `POST /api/camera/:token/uploads/register` accepts `{ "intentId": "UUID", "clientUploadId": "UUID", "publicId": "...", "capturedAt": "ISO-8601" }`. It verifies and atomically registers the image. It is idempotent by client upload ID.
 - `GET /api/camera/:token/photos` returns photo history for the pass and remaining shots.
@@ -68,6 +69,8 @@ Generate and persist one UUID for each captured image before its first network a
 ### Admin
 
 - `GET /api/admin/weddings/:weddingId/photos?limit=50&cursor=ISO_DATE&status=pending` returns a cursor-paginated gallery. It requires `Authorization: Bearer <Supabase access token>` and an `admins` membership for the wedding.
+- `PATCH /api/admin/weddings/:weddingId/guests/:guestId` edits a guest display name (owner/editor only).
+- `POST /api/admin/weddings/:weddingId/camera-passes/:cameraPassId/test-reset` is an owner/editor-only test operation. Send `mode: "shot_count"` or `mode: "full"`, the exact `confirmation: "RESET TEST CAMERA PASS"`, and optionally `deleteCloudinaryAssets: true` for a full reset. A server reset never clears device queues; in development, the camera footer exposes a pass-scoped local cleanup button. For real guests, grant extra shots instead of using test reset.
 
 ## SQL migration
 
@@ -102,6 +105,7 @@ Captured images are decoded with browser orientation handling, drawn onto a canv
 - Private browsing and embedded browsers may provide small or ephemeral IndexedDB quotas.
 - iOS can evict site data under storage pressure and does not offer consistent Background Sync; a foreground retry path is still required.
 - `facingMode: environment` is a preference, not a guarantee; some browsers may choose another camera.
+- Rear-camera LED torch is a progressive enhancement based on `MediaStreamTrack.getCapabilities().torch`. Chromium browsers on some Android devices support it; iOS/Safari and many desktop/embedded browsers commonly do not. Unsupported devices silently use the existing screen-flash effect. “Auto” currently means flash-assisted capture when available because browsers do not expose a portable ambient-light reading.
 - Image decoding and canvas compression temporarily require memory proportional to the decoded image. Very low-memory devices can still fail cleanly.
 - API reachability is advisory and can change immediately after a probe.
 

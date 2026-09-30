@@ -71,3 +71,27 @@ export async function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> 
   if (!blob) throw new CameraError("capture-failed", "The photo could not be captured.");
   return blob;
 }
+
+/** Runs torch use only around capture and guarantees a best-effort shutdown. */
+export async function captureWithTorch<T>(
+  session: CameraSession | null,
+  flashEnabled: boolean,
+  capture: () => Promise<T>,
+  warmupMs = 120,
+  onTorchUnavailable?: () => void,
+): Promise<T> {
+  let attemptedHardwareTorch = false;
+  try {
+    if (flashEnabled && session?.hasTorch && session.setTorch) {
+      attemptedHardwareTorch = true;
+      const enabled = await session.setTorch(true);
+      if (!enabled) onTorchUnavailable?.();
+      if (enabled && warmupMs > 0) await new Promise((resolve) => setTimeout(resolve, warmupMs));
+    } else if (flashEnabled) {
+      onTorchUnavailable?.();
+    }
+    return await capture();
+  } finally {
+    if (attemptedHardwareTorch && session?.setTorch) await session.setTorch(false).catch(() => false);
+  }
+}

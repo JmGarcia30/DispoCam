@@ -9,6 +9,7 @@ import { resolveWeddingConfig, DEFAULT_WEDDING_CONFIG } from "@/lib/wedding/conf
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { DisposableCamera } from "@/components/disposable-camera";
 import { CameraIcon } from "@/components/icons";
+import { GuestNameStep, needsGuestName } from "@/components/guest-name-step";
 
 interface PassApiResponse {
   data: {
@@ -16,7 +17,7 @@ interface PassApiResponse {
     wedding_id: string;
     wedding_name: string;
     guest_id: string;
-    guest_name: string;
+    guest_name: string | null;
     shots_remaining: number;
     expires_at: string | null;
   };
@@ -276,6 +277,30 @@ export function CameraShell() {
   }
 
   const wedding = resolveWeddingConfig(resolved.session);
+
+  if (needsGuestName(resolved.session.guestName)) {
+    return (
+      <GuestNameStep
+        onContinue={async (displayName) => {
+          if (!resolved.token || resolved.offline) {
+            throw new Error("Connect to the internet to save your name before opening the camera.");
+          }
+          const response = await fetch(`/api/camera/${encodeURIComponent(resolved.token)}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ displayName }),
+          });
+          if (!response.ok) {
+            const payload = await response.json().catch(() => null);
+            throw new Error(payload?.error?.message ?? "Your name could not be saved.");
+          }
+          const updated = { ...resolved.session, guestName: displayName, resolvedAt: new Date().toISOString() };
+          await offlinePhotoStore.saveCameraSession(updated);
+          updateResolvedSession(updated);
+        }}
+      />
+    );
+  }
 
   if (currentScreen === "welcome") {
     return (

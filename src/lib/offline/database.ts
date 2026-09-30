@@ -132,6 +132,16 @@ export class OfflinePhotoStore {
     return photos.filter((photo) => photo.status !== "uploaded").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
+  /** Development/admin helper: never touches records belonging to another pass. */
+  async clearPhotosForPass(cameraPassId: string): Promise<number> {
+    const database = await this.getDatabase();
+    const transaction = database.transaction("photos", "readwrite");
+    const keys = await transaction.store.index("by-pass").getAllKeys(cameraPassId);
+    for (const key of keys) await transaction.store.delete(key);
+    await transaction.done;
+    return keys.length;
+  }
+
   async claimNextPhoto(
     cameraPassId: string,
     claimId: string,

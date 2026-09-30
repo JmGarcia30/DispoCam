@@ -15,6 +15,8 @@ const dbCodes: Record<string, [number, string, string]> = {
   UPLOAD_INTENT_NOT_FOUND: [404, "upload_intent_not_found", "Upload intent was not found."],
   UPLOAD_INTENT_EXPIRED: [409, "upload_intent_expired", "Upload intent has expired."],
   UPLOAD_INTENT_MISMATCH: [409, "upload_intent_mismatch", "Upload details do not match the intent."],
+  INVALID_GUEST_NAME: [400, "invalid_guest_name", "Display name must be between 2 and 120 characters."],
+  GUEST_NAME_ALREADY_SET: [409, "guest_name_already_set", "This guest already has a display name."],
 };
 
 export function fromDatabaseError(error: { message: string; code?: string }): ApiError {

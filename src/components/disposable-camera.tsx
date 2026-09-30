@@ -2,8 +2,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { CameraSession } from "@/lib/camera/capture";
-import { attachCamera, captureVideoFrame, openCamera } from "@/lib/camera/capture";
+import { attachCamera, captureVideoFrame, captureWithTorch, openCamera } from "@/lib/camera/capture";
 import type { OfflineCameraSession } from "@/lib/offline/types";
+import { offlinePhotoStore } from "@/lib/offline/database";
 import { requestPhotoBackgroundSync } from "@/lib/pwa/service-worker";
 import { useOfflinePhotos } from "@/hooks/use-offline-photos";
 import { usePhotoSync } from "@/hooks/use-photo-sync";
@@ -41,6 +42,7 @@ export function DisposableCamera({
   const [cameraActive, setCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [flashMode, setFlashMode] = useState<"auto" | "on" | "off">("auto");
+  const [hardwareTorchAvailable, setHardwareTorchAvailable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isShutterBlinking, setIsShutterBlinking] = useState(false);
   const [isFlashBursting, setIsFlashBursting] = useState(false);
@@ -84,6 +86,7 @@ export function DisposableCamera({
         cameraRef.current?.stop();
         const newSession = await openCamera(mode);
         cameraRef.current = newSession;
+        setHardwareTorchAvailable(Boolean(newSession.hasTorch));
         if (videoRef.current) {
           await attachCamera(videoRef.current, newSession.stream);
         }
@@ -109,6 +112,7 @@ export function DisposableCamera({
           return;
         }
         cameraRef.current = newSession;
+        setHardwareTorchAvailable(Boolean(newSession.hasTorch));
         if (videoRef.current) {
           await attachCamera(videoRef.current, newSession.stream);
         }
@@ -136,14 +140,10 @@ export function DisposableCamera({
   };
 
   // Toggle flash mode
-  const cycleFlashMode = async () => {
+  const cycleFlashMode = () => {
     const nextMode = flashMode === "auto" ? "on" : flashMode === "on" ? "off" : "auto";
     setFlashMode(nextMode);
 
-    // Apply hardware torch if available and mode is "on"
-    if (cameraRef.current?.setTorch) {
-      await cameraRef.current.setTorch(nextMode === "on");
-    }
   };
 
   // Take photo action
@@ -152,7 +152,7 @@ export function DisposableCamera({
 
     // 1. Shutter animation & optical flash burst
     setIsShutterBlinking(true);
-    if (flashMode === "on" || flashMode === "auto") {
+    if ((flashMode === "on" || flashMode === "auto") && !hardwareTorchAvailable) {
       setIsFlashBursting(true);
       setTimeout(() => setIsFlashBursting(false), 380);
     }
@@ -170,7 +170,16 @@ export function DisposableCamera({
     setSaving(true);
     try {
       // 3. Capture video frame to Blob
-      const image = await captureVideoFrame(videoRef.current);
+      const image = await captureWithTorch(
+        cameraRef.current,
+        flashMode !== "off",
+        () => captureVideoFrame(videoRef.current!),
+        120,
+        () => {
+          setIsFlashBursting(true);
+          setTimeout(() => setIsFlashBursting(false), 380);
+        },
+      );
 
       // 4. Save to offline store
       await photos.saveCapture(image, session.maxUploadBytes);
@@ -188,7 +197,7 @@ export function DisposableCamera({
     } finally {
       setSaving(false);
     }
-  }, [flashMode, photos, saving, session.maxUploadBytes, sync]);
+  }, [flashMode, hardwareTorchAvailable, photos, saving, session.maxUploadBytes, sync]);
 
   // Shot count styling
   const shotsLeft = photos.effectiveRemainingShots;
@@ -318,7 +327,7 @@ export function DisposableCamera({
           {/* Flash Mode Toggle */}
           <button
             type="button"
-            onClick={() => void cycleFlashMode()}
+            onClick={cycleFlashMode}
             style={{
               display: "flex",
               alignItems: "center",
@@ -337,6 +346,9 @@ export function DisposableCamera({
           >
             <FlashIcon size={13} />
             <span>{flashMode.toUpperCase()}</span>
+            <span aria-label={hardwareTorchAvailable ? "Hardware torch available" : "Screen flash fallback"}>
+              {hardwareTorchAvailable ? "LED" : "SCREEN"}
+            </span>
           </button>
 
           {/* Stamped Disposable Camera label */}
@@ -588,6 +600,19 @@ export function DisposableCamera({
           attentionCount={attentionPhotos.length}
           onOpenAttention={() => setShowAttentionModal(true)}
         />
+        {process.env.NODE_ENV !== "production" && (
+          <button
+            type="button"
+            onClick={async () => {
+              if (!window.confirm("Clear locally queued test photos for this camera pass only? Server data is not changed.")) return;
+              await offlinePhotoStore.clearPhotosForPass(session.cameraPassId);
+              await photos.refresh();
+            }}
+            style={{ background: "none", border: 0, color: "#8c867e", fontSize: "11px", textDecoration: "underline" }}
+          >
+            Clear local test photos for this pass
+          </button>
+        )}
       </footer>
 
       {/* Needs Attention Modal Dialog */}

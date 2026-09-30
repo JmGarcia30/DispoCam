@@ -8,7 +8,7 @@ export interface CameraPassInfo {
   wedding_id: string;
   wedding_name: string;
   guest_id: string;
-  guest_name: string;
+  guest_name: string | null;
   shot_limit: number;
   shots_used: number;
   shots_reserved: number;
@@ -58,6 +58,14 @@ export interface Database {
           p_captured_at: string;
         };
         Returns: RegisteredPhoto[];
+      };
+      set_camera_pass_guest_name: {
+        Args: { p_token_hash: string; p_display_name: string };
+        Returns: string;
+      };
+      reset_camera_pass_for_testing: {
+        Args: { p_wedding_id: string; p_camera_pass_id: string; p_full_reset: boolean };
+        Returns: string[];
       };
     };
   };

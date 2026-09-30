@@ -89,6 +89,16 @@ describe("OfflinePhotoStore", () => {
     expect((await store.getPhotosForPass(PASS_ID))).toHaveLength(1);
   });
 
+  it("clears local test photos only for the requested camera pass", async () => {
+    await store.storePhoto(input(crypto.randomUUID()));
+    await store.storePhoto(input(crypto.randomUUID()));
+    const unrelated = await store.storePhoto(input(crypto.randomUUID(), OTHER_PASS_ID));
+
+    expect(await store.clearPhotosForPass(PASS_ID)).toBe(2);
+    expect(await store.getPhotosForPass(PASS_ID)).toEqual([]);
+    expect((await store.getPhoto(unrelated.id))?.cameraPassId).toBe(OTHER_PASS_ID);
+  });
+
   it("atomically refuses captures beyond the effective local limit", async () => {
     await store.storePhotoWithinShotLimit(input(crypto.randomUUID()), 1);
     await expect(store.storePhotoWithinShotLimit(input(crypto.randomUUID()), 1)).rejects.toMatchObject({

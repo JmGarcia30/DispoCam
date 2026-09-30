@@ -46,7 +46,7 @@ export interface OfflineCameraSession {
   weddingId: string;
   weddingName: string;
   guestId: string;
-  guestName: string;
+  guestName: string | null;
   serverRemainingShots: number;
   maxUploadBytes: number;
   expiresAt: string | null;

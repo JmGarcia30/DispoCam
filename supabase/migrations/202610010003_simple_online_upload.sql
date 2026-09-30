@@ -46,8 +46,10 @@ begin
   insert into public.photos(wedding_id, guest_id, camera_pass_id, cloudinary_public_id, secure_url, width, height, captured_at, client_upload_id)
     values (v_pass.wedding_id, v_pass.guest_id, v_pass.id, p_cloudinary_public_id, p_secure_url, p_width, p_height, p_captured_at, p_client_upload_id)
     returning * into v_photo;
-  update public.camera_passes set shots_used = shots_used + 1 where id = v_pass.id
-    returning * into v_pass;
+  update public.camera_passes cp
+set shots_used = cp.shots_used + 1
+where cp.id = v_pass.id
+returning cp.* into v_pass;
 
   return query select v_photo.id, v_photo.client_upload_id, v_photo.cloudinary_public_id,
     v_photo.secure_url, v_photo.width, v_photo.height, v_photo.captured_at,

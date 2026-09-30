@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { CameraSession } from "@/lib/camera/capture";
 import { attachCamera, captureVideoFrame, captureWithTorch, openCamera } from "@/lib/camera/capture";
 import type { CameraPageMode, OfflineCameraSession } from "@/lib/offline/types";
-import { offlinePhotoStore } from "@/lib/offline/database";
+import { offlinePhotoStore, type OfflinePhotoStore } from "@/lib/offline/database";
 import { useOfflinePhotos } from "@/hooks/use-offline-photos";
 import { usePhotoSync } from "@/hooks/use-photo-sync";
 import { useNetworkStatus } from "@/hooks/use-network-status";
@@ -17,6 +17,18 @@ import { ServiceWorkerUpdateBanner } from "@/components/service-worker-update-ba
 import { CameraIcon, CheckIcon, FlashIcon, FlipCameraIcon } from "@/components/icons";
 import { canStartCountedCapture, onlineCaptureUiState, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
 import { CAMERA_FILTERS, DEFAULT_CAMERA_FILTER, getCameraFilterPreset, type CameraFilter } from "@/lib/camera/filters";
+import { uploadOnlinePhotoSimple } from "@/lib/online/simple-upload";
+
+export async function retryOnlineOnlyPhoto(
+  cameraPassId: string,
+  token: string | null,
+  photoId: string,
+  options: { store?: OfflinePhotoStore; fetch?: typeof fetch } = {},
+) {
+  const store = options.store ?? offlinePhotoStore;
+  await store.retryPhoto(photoId);
+  return uploadOnlinePhotoSimple(cameraPassId, token, photoId, { store, fetch: options.fetch });
+}
 
 interface DisposableCameraProps {
   token: string | null;
@@ -215,7 +227,7 @@ export function DisposableCamera({
     setSaving(true);
     setUploadNotice(null);
     try {
-      const result = await sync.manualRetry(effectiveRetryPhotoId);
+      const result = await retryOnlineOnlyPhoto(session.cameraPassId, token, effectiveRetryPhotoId);
       if (result.uploaded !== 1 || !result.authoritativeShots) {
         setUploadNotice("Upload failed — Retry");
         return;
@@ -225,6 +237,7 @@ export function DisposableCamera({
       onSessionUpdated(updated);
       await photos.refresh();
       setRetryPhotoId(null);
+      setUploadNotice(null);
       setCapturedFeedback(true);
       setTimeout(() => setCapturedFeedback(false), 1800);
     } catch {
@@ -232,7 +245,7 @@ export function DisposableCamera({
     } finally {
       setSaving(false);
     }
-  }, [effectiveRetryPhotoId, onSessionUpdated, photos, saving, session, sync]);
+  }, [effectiveRetryPhotoId, onSessionUpdated, photos, saving, session, token]);
 
   // Shot count styling
   const onlineUi = onlineCaptureUiState(session.serverRemainingShots, photos.localPendingShots);

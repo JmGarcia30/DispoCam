@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfflinePhotoStore } from "@/lib/offline/database";
 import { uploadOnlinePhotoSimple } from "@/lib/online/simple-upload";
+import { retryOnlineOnlyPhoto } from "@/components/disposable-camera";
 
 const PASS_ID = "11111111-1111-4111-8111-111111111111";
 const TOKEN = "camera-token-with-more-than-thirty-two-characters";
@@ -53,9 +54,10 @@ describe("simple online upload client", () => {
     const stored = await store.getPhoto(id);
     expect(stored?.image).toMatchObject({ size: blob.size, type: blob.type });
     expect(new Uint8Array(await stored!.image.arrayBuffer())).toEqual(new Uint8Array(await blob.arrayBuffer()));
-    await store.retryPhoto(id);
     const retry = vi.fn<typeof fetch>().mockResolvedValue(response(id, 1));
-    expect((await uploadOnlinePhotoSimple(PASS_ID, TOKEN, id, { store, fetch: retry, claimId: () => "second" })).uploaded).toBe(1);
+    expect((await retryOnlineOnlyPhoto(PASS_ID, TOKEN, id, { store, fetch: retry })).uploaded).toBe(1);
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(retry.mock.calls[0][0]).toBe(`/api/camera/${encodeURIComponent(TOKEN)}/uploads/simple`);
     expect(new Headers(retry.mock.calls[0][1]?.headers).get("X-Client-Upload-Id")).toBe(id);
     expect(new Headers(retry.mock.calls[0][1]?.headers).get("X-Captured-At")).toBe("2026-10-01T00:00:00.000Z");
   });

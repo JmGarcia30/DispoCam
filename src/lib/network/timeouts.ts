@@ -5,6 +5,6 @@ export const NETWORK_TIMEOUTS = {
   cameraPassMs: 25_000,
   uploadSignMs: 25_000,
   cloudinaryUploadMs: 90_000,
-  binaryProxyMs: 25_000,
+  binaryProxyMs: 45_000,
   uploadRegisterMs: 25_000,
 } as const;

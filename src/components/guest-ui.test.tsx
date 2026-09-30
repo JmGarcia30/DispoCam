@@ -130,7 +130,7 @@ describe("Guest-facing UI Components", () => {
     it("uses calm retry-scheduled and active retry messages", () => {
       const scheduled = renderToStaticMarkup(<SyncStatusBar state="retry-scheduled" offline={false} waitingCount={1} attentionCount={0} retryableCount={1} onOpenAttention={() => {}} />);
       const retrying = renderToStaticMarkup(<SyncStatusBar state="retrying" offline={false} waitingCount={1} attentionCount={0} />);
-      expect(scheduled).toContain("Saved safely. Retrying when connection improves.");
+      expect(scheduled).toContain("Saved on this device • We&#x27;ll try again when the connection improves.");
       expect(scheduled).toContain("Details");
       expect(retrying).toContain("Retrying upload…");
     });
@@ -149,6 +149,7 @@ describe("Guest-facing UI Components", () => {
         attempts: 1,
         failureKind: "retryable",
         failureStage: "cloudinary",
+        failureMethod: "server-fallback",
         failureStatus: 408,
         failureCode: "request_timeout",
         lastError: "The upload request timed out and will be retried.",
@@ -167,6 +168,8 @@ describe("Guest-facing UI Components", () => {
       expect(html).toContain("Your photo is safe. We&#x27;ll retry automatically.");
       expect(html).toContain("Stage: ");
       expect(html).toContain("cloudinary");
+      expect(html).toContain("Method: ");
+      expect(html).toContain("server-fallback");
       expect(html).toContain("Status: ");
       expect(html).toContain("408");
       expect(html).toContain("request_timeout");

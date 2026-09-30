@@ -3,6 +3,7 @@ export const OFFLINE_PHOTO_STATUSES = ["pending", "uploading", "uploaded", "fail
 export type OfflinePhotoStatus = (typeof OFFLINE_PHOTO_STATUSES)[number];
 export type SyncFailureKind = "retryable" | "attention";
 export type SyncFailureStage = "pass" | "sign" | "cloudinary" | "register";
+export type UploadMethod = "direct" | "server-fallback";
 
 export interface OfflinePhoto {
   /** Stable client upload UUID. It must also be used by the future sync API calls. */
@@ -22,6 +23,8 @@ export interface OfflinePhoto {
   failureStage?: SyncFailureStage;
   failureStatus?: number;
   failureKind?: SyncFailureKind;
+  failureMethod?: UploadMethod;
+  preferServerFallback?: boolean;
   lastAttemptAt?: string;
   nextRetryAt?: string;
   claimId?: string;

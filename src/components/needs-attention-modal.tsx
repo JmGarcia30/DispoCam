@@ -179,6 +179,7 @@ export function NeedsAttentionModal({
                 {photo.failureCode && (
                   <dl style={{ margin: "5px 0 0", color: "#A8A29A", fontFamily: "var(--font-mono)", fontSize: "9px", lineHeight: 1.5 }}>
                     <div><dt style={{ display: "inline" }}>Stage: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureStage ?? "sync"}</dd></div>
+                    {photo.failureMethod && <div><dt style={{ display: "inline" }}>Method: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureMethod}</dd></div>}
                     <div><dt style={{ display: "inline" }}>Status: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureStatus ?? "network"}</dd></div>
                     <div><dt style={{ display: "inline" }}>Code: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureCode}</dd></div>
                     <div><dt style={{ display: "inline" }}>Message: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.lastError ?? "The upload will be retried."}</dd></div>

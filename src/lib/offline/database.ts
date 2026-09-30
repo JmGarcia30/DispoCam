@@ -249,10 +249,15 @@ export class OfflinePhotoStore {
     const updated: OfflinePhoto = {
       ...photo,
       status: "pending",
+      preferServerFallback: photo.preferServerFallback || (
+        photo.failureStage === "cloudinary" &&
+        (photo.failureCode === "network_error" || photo.failureCode === "request_timeout")
+      ),
       failureKind: undefined,
       failureCode: undefined,
       failureStage: undefined,
       failureStatus: undefined,
+      failureMethod: undefined,
       lastError: undefined,
       nextRetryAt: undefined,
       claimId: undefined,

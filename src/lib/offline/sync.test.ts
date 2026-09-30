@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfflinePhotoStore } from "@/lib/offline/database";
-import { fetchWithTimeout, isRetryableStatus, requestJson, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
+import { fetchWithTimeout, isDirectTransportFailure, isRetryableStatus, requestJson, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { preparePhotosForManualRetry } from "@/lib/offline/manual-retry";
 
@@ -74,6 +74,7 @@ describe("photo synchronization", () => {
     store,
     fetch: fetcher,
     canReach: async () => true,
+    fallbackCanReach: async () => true,
     now: () => new Date(nowMs),
     random: () => 0.5,
     claimId: () => "test-claim",
@@ -102,6 +103,128 @@ describe("photo synchronization", () => {
     expect(uploadBody.get("context")).toBe(`intent_id=${INTENT_ID}|client_upload_id=${PHOTO_ID}`);
     expect(uploadBody.get("signature")).toBe("temporary-signature");
     expect(uploadBody.get("file")).toBeInstanceOf(Blob);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/proxy"))).toBe(false);
+  });
+
+  it("falls back through the reachable backend after a direct Cloudinary transport failure", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockRejectedValueOnce(new TypeError("Load failed"))
+      .mockResolvedValueOnce(json({ data: { id: "server-photo" } }, 201));
+
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
+    expect(result).toMatchObject({ status: "complete", uploaded: 1, remaining: 0 });
+    const proxyCall = fetcher.mock.calls.find(([url]) => String(url).endsWith("/uploads/proxy"));
+    expect(proxyCall).toBeDefined();
+    const body = proxyCall![1]?.body as FormData;
+    expect(body.get("clientUploadId")).toBe(PHOTO_ID);
+    expect(body.get("intentId")).toBe(INTENT_ID);
+    expect(body.get("image")).toBeInstanceOf(Blob);
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/register"))).toBe(false);
+    expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("classifies a direct Cloudinary timeout for server fallback", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>((_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const pending = requestJson(fetcher, "https://api.cloudinary.test/upload", { method: "POST" }, "cloudinary", 1_000);
+    let failure: unknown;
+    void pending.catch((error) => { failure = error; });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(pending).rejects.toMatchObject({ stage: "cloudinary", status: 408, code: "request_timeout" });
+    expect(isDirectTransportFailure(failure)).toBe(true);
+  });
+
+  it("keeps the local Blob and fallback preference when direct and proxy transports fail", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockRejectedValueOnce(new TypeError("Load failed"))
+      .mockResolvedValueOnce(json({ error: { code: "proxy_upload_failed", message: "The server upload failed temporarily." } }, 502));
+
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
+    expect(result).toMatchObject({
+      status: "retry-scheduled",
+      diagnostic: { stage: "cloudinary", method: "server-fallback", status: 502, code: "proxy_upload_failed" },
+    });
+    expect(await store.getPhoto(PHOTO_ID)).toMatchObject({
+      id: PHOTO_ID,
+      image: expect.any(Blob),
+      failureKind: "retryable",
+      failureStage: "cloudinary",
+      failureMethod: "server-fallback",
+      preferServerFallback: true,
+    });
+  });
+
+  it("does not call the proxy when backend reachability fails after a direct transport error", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockRejectedValueOnce(new TypeError("Load failed"));
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, {
+      ...options(fetcher),
+      fallbackCanReach: async () => false,
+    });
+    expect(result).toMatchObject({
+      status: "retry-scheduled",
+      diagnostic: { stage: "cloudinary", method: "direct", code: "network_error" },
+    });
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/proxy"))).toBe(false);
+    const stored = await store.getPhoto(PHOTO_ID);
+    expect(stored?.image).toBeInstanceOf(Blob);
+    expect(stored?.preferServerFallback).toBeUndefined();
+    await preparePhotosForManualRetry(PASS_ID, undefined, store);
+    expect(await store.getPhoto(PHOTO_ID)).toMatchObject({ status: "pending", preferServerFallback: true });
+  });
+
+  it("uses the server fallback directly on manual retry after a prior direct transport failure", async () => {
+    const first = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockRejectedValueOnce(new TypeError("Load failed"))
+      .mockResolvedValueOnce(json({ error: { code: "proxy_upload_failed" } }, 502));
+    await syncCameraPhotos(PASS_ID, TOKEN, options(first));
+    await preparePhotosForManualRetry(PASS_ID, undefined, store);
+
+    const retry = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(json({ data: { id: "server-photo" } }, 201));
+    await expect(syncCameraPhotos(PASS_ID, TOKEN, options(retry))).resolves.toMatchObject({ status: "complete", uploaded: 1 });
+    expect(retry.mock.calls[2][0]).toContain("/uploads/proxy");
+    expect(retry.mock.calls.some(([url]) => String(url).includes("cloudinary.test"))).toBe(false);
+    expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("refreshes an expired fallback intent with the same clientUploadId", async () => {
+    const first = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockRejectedValueOnce(new TypeError("Load failed"))
+      .mockResolvedValueOnce(json({ error: { code: "upload_intent_expired", message: "Expired" } }, 409));
+    await syncCameraPhotos(PASS_ID, TOKEN, options(first));
+    expect(await store.getPhoto(PHOTO_ID)).toMatchObject({
+      id: PHOTO_ID,
+      failureCode: "upload_intent_expired",
+      uploadIntentId: undefined,
+      preferServerFallback: true,
+    });
+
+    nowMs += 3_000;
+    const newIntent = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const retry = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed(newIntent, "weddings/pending/refreshed"))
+      .mockResolvedValueOnce(json({ data: { id: "server-photo" } }, 201));
+    await expect(syncCameraPhotos(PASS_ID, TOKEN, options(retry))).resolves.toMatchObject({ status: "complete", uploaded: 1 });
+    expect(JSON.parse(String(retry.mock.calls[1][1]?.body)).clientUploadId).toBe(PHOTO_ID);
+    const proxyBody = retry.mock.calls[2][1]?.body as FormData;
+    expect(proxyBody.get("intentId")).toBe(newIntent);
+    expect(proxyBody.get("clientUploadId")).toBe(PHOTO_ID);
   });
 
   it("automatically completes an offline capture when backend reachability returns", async () => {

@@ -1,7 +1,7 @@
 import { canReachApplication } from "@/lib/network/connectivity";
 import { offlinePhotoStore, type OfflinePhotoStore } from "@/lib/offline/database";
 import { calculateRetryDelay } from "@/lib/offline/retry";
-import type { OfflinePhoto, SyncFailureStage } from "@/lib/offline/types";
+import type { OfflinePhoto, SyncFailureStage, UploadMethod } from "@/lib/offline/types";
 import { photoSyncChannel } from "@/lib/offline/channel";
 import { createBrowserUuid } from "@/lib/browser/uuid";
 import { FetchTimeoutError, fetchWithTimeout } from "@/lib/network/fetch-timeout";
@@ -34,12 +34,14 @@ export interface SyncDiagnostic {
   status?: number;
   code: string;
   message: string;
+  method?: UploadMethod;
 }
 
 export interface SyncDependencies {
   store?: OfflinePhotoStore;
   fetch?: typeof fetch;
   canReach?: () => Promise<boolean>;
+  fallbackCanReach?: () => Promise<boolean>;
   now?: () => Date;
   random?: () => number;
   claimLeaseMs?: number;
@@ -83,6 +85,7 @@ export class SyncRequestError extends Error {
     public readonly status: number | undefined,
     public readonly code: string,
     message: string,
+    public readonly method?: UploadMethod,
   ) {
     super(message);
     this.name = "SyncRequestError";
@@ -172,7 +175,42 @@ async function uploadToCloudinary(fetcher: typeof fetch, signed: Exclude<SignRes
   form.set("signature", signed.upload.signature);
   const publicIdParts = signed.upload.publicId.split("/");
   form.set("file", image, `${publicIdParts[publicIdParts.length - 1] || "photo"}.jpg`);
-  return requestJson<CloudinaryResponse>(fetcher, signed.uploadUrl, { method: "POST", body: form }, "cloudinary", NETWORK_TIMEOUTS.cloudinaryUploadMs);
+  try {
+    return await requestJson<CloudinaryResponse>(fetcher, signed.uploadUrl, { method: "POST", body: form }, "cloudinary", NETWORK_TIMEOUTS.cloudinaryUploadMs);
+  } catch (error) {
+    if (error instanceof SyncRequestError) throw new SyncRequestError(error.stage, error.status, error.code, error.message, "direct");
+    throw error;
+  }
+}
+
+export function isDirectTransportFailure(error: unknown): error is SyncRequestError {
+  return error instanceof SyncRequestError && error.stage === "cloudinary" &&
+    (error.code === "network_error" || error.code === "request_timeout");
+}
+
+async function uploadThroughServer(
+  fetcher: typeof fetch,
+  token: string,
+  photo: OfflinePhoto,
+  intentId: string,
+): Promise<void> {
+  const form = new FormData();
+  form.set("clientUploadId", photo.id);
+  form.set("intentId", intentId);
+  form.set("capturedAt", photo.capturedAt);
+  form.set("image", photo.image, `${photo.id}.jpg`);
+  try {
+    await requestJson(
+      fetcher,
+      `/api/camera/${encodeURIComponent(token)}/uploads/proxy`,
+      { method: "POST", body: form },
+      "cloudinary",
+      NETWORK_TIMEOUTS.cloudinaryUploadMs,
+    );
+  } catch (error) {
+    if (error instanceof SyncRequestError) throw new SyncRequestError(error.stage, error.status, error.code, error.message, "server-fallback");
+    throw error;
+  }
 }
 
 async function registerUpload(
@@ -210,9 +248,9 @@ async function processClaimedPhoto(
   initialPhoto: OfflinePhoto,
   token: string,
   claimId: string,
-  dependencies: Required<Pick<SyncDependencies, "store" | "fetch" | "now" | "random" | "claimLeaseMs">>,
+  dependencies: Required<Pick<SyncDependencies, "store" | "fetch" | "fallbackCanReach" | "now" | "random" | "claimLeaseMs">>,
 ): Promise<"uploaded" | "retry" | "attention"> {
-  const { store, fetch: fetcher, now, random, claimLeaseMs } = dependencies;
+  const { store, fetch: fetcher, fallbackCanReach, now, random, claimLeaseMs } = dependencies;
   let photo = initialPhoto;
   const renew = (patch: Partial<OfflinePhoto> = {}) =>
     store.updateClaimedPhoto(photo.id, claimId, {
@@ -238,10 +276,26 @@ async function processClaimedPhoto(
         cloudinaryUploadedAt: undefined,
       });
 
+      if (photo.preferServerFallback) {
+        await uploadThroughServer(fetcher, token, photo, signed.data.intentId);
+        await store.completeClaimedPhoto(photo.id, claimId);
+        photoSyncChannel.publish({ type: "upload-completed", cameraPassId: photo.cameraPassId, photoId: photo.id });
+        photoSyncChannel.publish({ type: "shot-count-changed", cameraPassId: photo.cameraPassId });
+        return "uploaded";
+      }
+
       let cloudinary: CloudinaryResponse | undefined;
       try {
         cloudinary = await uploadToCloudinary(fetcher, signed.data, photo.image);
       } catch (error) {
+        if (isDirectTransportFailure(error) && await fallbackCanReach()) {
+          photo = await renew({ preferServerFallback: true });
+          await uploadThroughServer(fetcher, token, photo, signed.data.intentId);
+          await store.completeClaimedPhoto(photo.id, claimId);
+          photoSyncChannel.publish({ type: "upload-completed", cameraPassId: photo.cameraPassId, photoId: photo.id });
+          photoSyncChannel.publish({ type: "shot-count-changed", cameraPassId: photo.cameraPassId });
+          return "uploaded";
+        }
         // With overwrite=false, a conflict after a lost response can mean the first upload succeeded.
         // Registration verifies the asset server-to-server, so it is the safe arbiter.
         if (!(error instanceof SyncRequestError) || error.status !== 409) throw error;
@@ -289,6 +343,7 @@ async function processClaimedPhoto(
         failureCode: requestError?.code ?? "sync_error",
         failureStage: requestError?.stage,
         failureStatus: requestError?.status,
+        failureMethod: requestError?.method,
         lastError: requestError?.message ?? "Upload temporarily failed. We'll keep trying.",
         nextRetryAt: new Date(now().getTime() + delay).toISOString(),
         claimId: undefined,
@@ -321,6 +376,7 @@ async function runBatch(
   const store = options.store ?? offlinePhotoStore;
   const fetcher = options.fetch ?? fetch;
   const reachable = options.canReach ?? (() => canReachApplication());
+  const fallbackReachable = options.fallbackCanReach ?? (() => canReachApplication());
   const now = options.now ?? (() => new Date());
   const random = options.random ?? Math.random;
   const claimLeaseMs = options.claimLeaseMs ?? DEFAULT_CLAIM_LEASE_MS;
@@ -390,6 +446,7 @@ async function runBatch(
       now,
       random,
       claimLeaseMs,
+      fallbackCanReach: fallbackReachable,
     });
     if (outcome === "uploaded") base.uploaded += 1;
     else if (outcome === "retry") base.retryScheduled += 1;
@@ -417,7 +474,7 @@ async function runBatch(
     remaining: outstanding.length,
     nextRetryAt: retryDates[0],
     diagnostic: failed?.failureStage && failed.failureCode
-      ? { stage: failed.failureStage, status: failed.failureStatus, code: failed.failureCode, message: failed.lastError ?? "Upload failed." }
+      ? { stage: failed.failureStage, status: failed.failureStatus, code: failed.failureCode, message: failed.lastError ?? "Upload failed.", method: failed.failureMethod }
       : undefined,
   };
 }

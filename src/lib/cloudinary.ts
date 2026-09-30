@@ -34,3 +34,13 @@ export function signUpload(publicId: string, intentId: string, clientUploadId: s
 export async function verifyCloudinaryImage(publicId: string) {
   return cloudinary.api.resource(publicId, { resource_type: "image", type: "upload" });
 }
+
+export function uploadImageBuffer(image: Buffer, publicId: string, context: string) {
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { public_id: publicId, overwrite: false, resource_type: "image", context },
+      (error, result) => error ? reject(error) : result ? resolve(result) : reject(new Error("Cloudinary returned no upload result.")),
+    );
+    stream.end(image);
+  });
+}

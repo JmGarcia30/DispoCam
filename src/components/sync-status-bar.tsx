@@ -40,7 +40,7 @@ export function SyncStatusBar({
   } else if (state === "uploading") {
     label = waitingCount > 0 ? `Uploading ${waitingCount} ${waitingCount === 1 ? "photo" : "photos"}…` : "Syncing photos…";
   } else if (state === "retry-scheduled") {
-    label = "Saved safely. Retrying when connection improves.";
+    label = "Saved on this device • We'll try again when the connection improves.";
     isActionable = retryableCount > 0;
   }
 

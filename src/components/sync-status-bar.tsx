@@ -40,11 +40,11 @@ export function SyncStatusBar({
       label = "Offline — photos save safely here";
     }
   } else if (state === "retrying") {
-    label = "Retrying upload…";
+    label = "Uploading photo…";
   } else if (state === "uploading") {
     label = waitingCount > 0 ? `Uploading ${waitingCount} ${waitingCount === 1 ? "photo" : "photos"}…` : "Syncing photos…";
   } else if (state === "retry-scheduled") {
-    label = "Saved on this device • We'll try again when the connection improves.";
+    label = "Photo saved on this device. Try again when the connection improves.";
     isActionable = retryableCount > 0;
   }
 

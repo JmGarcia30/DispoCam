@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfflinePhotoStore } from "@/lib/offline/database";
-import { buildProxyEndpoint, createProxyUploadBlob, fetchWithTimeout, isDirectTransportFailure, isRetryableStatus, requestJson, SyncRequestError, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
+import { binaryProxyRequestInit, buildProxyEndpoint, createProxyUploadBlob, fetchWithTimeout, isDirectTransportFailure, isIosSafari, isRetryableStatus, requestJson, SyncRequestError, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
 import { PROXY_IMAGE_MAX_BYTES, VERCEL_FUNCTION_BODY_LIMIT_BYTES } from "@/lib/network/proxy-upload";
 import { sameOriginMultipartPost } from "@/lib/network/upload-diagnostics";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
@@ -119,15 +119,32 @@ describe("photo synchronization", () => {
     expect(result).toMatchObject({ status: "complete", uploaded: 1, remaining: 0 });
     const proxyCall = fetcher.mock.calls.find(([url]) => String(url).endsWith("/uploads/proxy"));
     expect(proxyCall).toBeDefined();
-    const body = proxyCall![1]?.body as FormData;
-    expect(new Headers(proxyCall![1]?.headers).has("Content-Type")).toBe(false);
+    const body = proxyCall![1]?.body as Blob;
+    const headers = new Headers(proxyCall![1]?.headers);
+    expect(headers.get("Content-Type")).toBe("image/jpeg");
     expect(proxyCall![1]?.redirect).toBeUndefined();
     expect(proxyCall![1]).toMatchObject({ method: "POST", credentials: "same-origin", cache: "no-store" });
-    expect(body.get("clientUploadId")).toBe(PHOTO_ID);
-    expect(body.get("intentId")).toBe(INTENT_ID);
-    expect(body.get("image")).toBeInstanceOf(Blob);
+    expect(headers.get("X-Client-Upload-Id")).toBe(PHOTO_ID);
+    expect(headers.get("X-Upload-Intent-Id")).toBe(INTENT_ID);
+    expect(headers.get("X-Captured-At")).toBe("2029-12-31T22:00:00.000Z");
+    expect(body).toBeInstanceOf(Blob);
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/register"))).toBe(false);
     expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("builds raw binary proxy options without FormData", () => {
+    const image = new Blob(["jpeg"], { type: "image/jpeg" });
+    const init = binaryProxyRequestInit(image, { id: PHOTO_ID, capturedAt: "2029-12-31T22:00:00.000Z" }, INTENT_ID);
+    expect(init.body).toBe(image);
+    expect(init.body).not.toBeInstanceOf(FormData);
+    expect(init).toMatchObject({ method: "POST", credentials: "same-origin", cache: "no-store" });
+    expect(new Headers(init.headers).get("X-Upload-Intent-Id")).toBe(INTENT_ID);
+  });
+
+  it("selects binary proxy first for iOS Safari only", () => {
+    expect(isIosSafari("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1")).toBe(true);
+    expect(isIosSafari("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 CriOS/130.0 Mobile/15E148 Safari/604.1")).toBe(false);
+    expect(isIosSafari("Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15", "MacIntel", 0)).toBe(false);
   });
 
   it("omits redirect and Content-Type from proxy and diagnostic-probe multipart options", () => {
@@ -166,8 +183,30 @@ describe("photo synchronization", () => {
     expect(signals[0]).not.toBe(signals[1]);
     expect(signals[1].aborted).toBe(false);
     const proxyCall = fetcher.mock.calls.find(([url]) => String(url).endsWith("/uploads/proxy"))!;
-    expect((proxyCall[1]?.body as FormData).get("image")).toBeInstanceOf(Blob);
-    expect(((proxyCall[1]?.body as FormData).get("image") as Blob).size).toBe(700_000);
+    expect(proxyCall[1]?.body).toBeInstanceOf(Blob);
+    expect((proxyCall[1]?.body as Blob).size).toBe(700_000);
+    expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("uses the 700 KB raw binary proxy first for an iOS Safari session", async () => {
+    await store.clearPhotosForPass(PASS_ID);
+    const bytes = new Uint8Array(700_000);
+    bytes.set([0xff, 0xd8, 0xff]);
+    await store.storePhoto({
+      id: PHOTO_ID, cameraPassId: PASS_ID, image: new Blob([bytes], { type: "image/jpeg" }),
+      capturedAt: "2029-12-31T22:00:00.000Z", width: 1600, height: 1200,
+    });
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(json({ data: { id: "server-photo", client_upload_id: PHOTO_ID } }, 201));
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, { ...options(fetcher), preferServerFallback: () => true });
+    expect(result).toMatchObject({ status: "complete", uploaded: 1, remaining: 0 });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(String(fetcher.mock.calls[2][0])).toContain("/uploads/proxy");
+    expect(fetcher.mock.calls[2][1]?.body).toBeInstanceOf(Blob);
+    expect((fetcher.mock.calls[2][1]?.body as Blob).size).toBe(700_000);
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes("cloudinary.test"))).toBe(false);
     expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
   });
 
@@ -227,14 +266,14 @@ describe("photo synchronization", () => {
     const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
     expect(result).toMatchObject({
       status: "retry-scheduled",
-      diagnostic: { stage: "cloudinary-server", method: "server-fallback", status: 502, code: "proxy_upload_failed" },
+      diagnostic: { stage: "cloudinary-server", method: "binary-server-fallback", transport: "binary-proxy", status: 502, code: "proxy_upload_failed" },
     });
     expect(await store.getPhoto(PHOTO_ID)).toMatchObject({
       id: PHOTO_ID,
       image: expect.any(Blob),
       failureKind: "retryable",
       failureStage: "cloudinary-server",
-      failureMethod: "server-fallback",
+      failureMethod: "binary-server-fallback",
       preferServerFallback: true,
     });
   });
@@ -248,7 +287,7 @@ describe("photo synchronization", () => {
     const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
     expect(result).toMatchObject({
       status: "retry-scheduled",
-      diagnostic: { stage: "proxy", method: "server-fallback", code: "network_error" },
+      diagnostic: { stage: "proxy", method: "binary-server-fallback", code: "network_error" },
     });
     expect((await store.getPhoto(PHOTO_ID))?.image).toBeInstanceOf(Blob);
   });
@@ -262,7 +301,7 @@ describe("photo synchronization", () => {
     const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
     expect(result).toMatchObject({
       status: "needs-attention",
-      diagnostic: { stage: "proxy", method: "server-fallback", status: 413, code: "proxy_payload_too_large" },
+      diagnostic: { stage: "proxy", method: "binary-server-fallback", status: 413, code: "proxy_payload_too_large" },
     });
     expect((await store.getPhoto(PHOTO_ID))?.image).toBeInstanceOf(Blob);
   });
@@ -329,9 +368,9 @@ describe("photo synchronization", () => {
       .mockResolvedValueOnce(json({ data: { id: "server-photo" } }, 201));
     await expect(syncCameraPhotos(PASS_ID, TOKEN, options(retry))).resolves.toMatchObject({ status: "complete", uploaded: 1 });
     expect(JSON.parse(String(retry.mock.calls[1][1]?.body)).clientUploadId).toBe(PHOTO_ID);
-    const proxyBody = retry.mock.calls[2][1]?.body as FormData;
-    expect(proxyBody.get("intentId")).toBe(newIntent);
-    expect(proxyBody.get("clientUploadId")).toBe(PHOTO_ID);
+    const proxyHeaders = new Headers(retry.mock.calls[2][1]?.headers);
+    expect(proxyHeaders.get("X-Upload-Intent-Id")).toBe(newIntent);
+    expect(proxyHeaders.get("X-Client-Upload-Id")).toBe(PHOTO_ID);
   });
 
   it("automatically completes an offline capture when backend reachability returns", async () => {

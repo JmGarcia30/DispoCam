@@ -30,12 +30,16 @@ function query(result: unknown) {
 }
 
 function validRequest(image = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0x00])], { type: "image/jpeg" })) {
-  const form = new FormData();
-  form.set("clientUploadId", PHOTO_ID);
-  form.set("intentId", INTENT_ID);
-  form.set("capturedAt", "2029-12-31T22:00:00.000Z");
-  form.set("image", image, "photo.jpg");
-  return new Request("http://test/api/camera/token/uploads/proxy", { method: "POST", body: form });
+  return new Request("http://test/api/camera/token/uploads/proxy", {
+    method: "POST",
+    body: image,
+    headers: {
+      "Content-Type": image.type,
+      "X-Client-Upload-Id": PHOTO_ID,
+      "X-Upload-Intent-Id": INTENT_ID,
+      "X-Captured-At": "2029-12-31T22:00:00.000Z",
+    },
+  });
 }
 
 function arrangeIntent(overrides: Record<string, unknown> = {}) {
@@ -74,13 +78,23 @@ describe("camera upload proxy route", () => {
     expect(registerVerifiedPhoto).toHaveBeenCalledWith(expect.objectContaining({ token: TOKEN, intentId: INTENT_ID, clientUploadId: PHOTO_ID, publicId: PUBLIC_ID }));
   });
 
-  it("accepts a small 150 KB JPEG through the real multipart parser", async () => {
+  it("accepts a small 150 KB JPEG through the raw binary parser", async () => {
     arrangeIntent();
     const bytes = new Uint8Array(150_000);
     bytes.set([0xff, 0xd8, 0xff]);
     const { POST } = await import("@/app/api/camera/[token]/uploads/proxy/route");
     const response = await POST(validRequest(new Blob([bytes], { type: "image/jpeg" })), context);
     expect(response.status).toBe(201);
+  });
+
+  it("rejects invalid binary metadata and content type", async () => {
+    const { POST } = await import("@/app/api/camera/[token]/uploads/proxy/route");
+    const invalidUuid = validRequest();
+    invalidUuid.headers.set("X-Client-Upload-Id", "not-a-uuid");
+    expect((await POST(invalidUuid, context)).status).toBe(400);
+    const invalidType = validRequest();
+    invalidType.headers.set("Content-Type", "application/octet-stream");
+    expect((await POST(invalidType, context)).status).toBe(415);
   });
 
   it("reconciles an existing photo without uploading or incrementing again", async () => {

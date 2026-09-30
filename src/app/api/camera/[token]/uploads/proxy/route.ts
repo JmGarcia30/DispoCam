@@ -27,20 +27,29 @@ export async function POST(request: Request, context: { params: Promise<{ token:
   let clientUploadId: string | undefined;
   let intentId: string | undefined;
   try {
-    console.info({ route: "camera-upload-proxy", event: "request_received" });
+    console.info({ route: "camera-upload-proxy", event: "binary_request_received" });
     const contentLength = Number(request.headers.get("content-length") ?? 0);
     if (contentLength > VERCEL_FUNCTION_BODY_LIMIT_BYTES) throw new ApiError(413, "proxy_payload_too_large", "The fallback upload exceeds the proxy size limit.");
 
     const { token } = await context.params;
     const pass = await getCameraPass(token);
-    const form = await request.formData();
     const fields = fieldsSchema.parse({
-      clientUploadId: form.get("clientUploadId"),
-      intentId: form.get("intentId"),
-      capturedAt: form.get("capturedAt"),
+      clientUploadId: request.headers.get("x-client-upload-id"),
+      intentId: request.headers.get("x-upload-intent-id"),
+      capturedAt: request.headers.get("x-captured-at"),
     });
     clientUploadId = fields.clientUploadId;
     intentId = fields.intentId;
+
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().startsWith("image/")) throw new ApiError(415, "invalid_image", "The uploaded file is not a supported image.");
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    console.info({ route: "camera-upload-proxy", event: "binary_body_read", byteSize: bytes.byteLength });
+    if (bytes.byteLength <= 0) throw new ApiError(400, "image_required", "An image file is required.");
+    if (bytes.byteLength > Math.min(env.MAX_UPLOAD_BYTES, PROXY_IMAGE_MAX_BYTES)) {
+      throw new ApiError(413, "proxy_payload_too_large", "The fallback upload exceeds the proxy size limit.");
+    }
+    if (!isSupportedImage(bytes)) throw new ApiError(415, "invalid_image", "The uploaded file is not a supported image.");
 
     const existing = await supabaseAdmin.from("photos")
       .select("id,client_upload_id")
@@ -60,15 +69,6 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     if (!intent) throw new ApiError(404, "upload_intent_not_found", "Upload intent was not found.");
     if (intent.client_upload_id !== fields.clientUploadId) throw new ApiError(409, "upload_intent_mismatch", "Upload details do not match the intent.");
     if (intent.status !== "pending" || Date.parse(intent.expires_at) <= Date.now()) throw new ApiError(409, "upload_intent_expired", "Upload intent has expired.");
-
-    const image = form.get("image");
-    if (!(image instanceof Blob)) throw new ApiError(400, "image_required", "An image file is required.");
-    console.info({ route: "camera-upload-proxy", event: "multipart_parsed", byteSize: image.size });
-    if (image.size <= 0 || image.size > Math.min(env.MAX_UPLOAD_BYTES, PROXY_IMAGE_MAX_BYTES)) {
-      throw new ApiError(413, "proxy_payload_too_large", "The fallback upload exceeds the proxy size limit.");
-    }
-    const bytes = new Uint8Array(await image.arrayBuffer());
-    if (!image.type.startsWith("image/") || !isSupportedImage(bytes)) throw new ApiError(415, "invalid_image", "The uploaded file is not a supported image.");
 
     let resource;
     try {

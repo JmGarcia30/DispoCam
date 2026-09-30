@@ -130,9 +130,9 @@ describe("Guest-facing UI Components", () => {
     it("uses calm retry-scheduled and active retry messages", () => {
       const scheduled = renderToStaticMarkup(<SyncStatusBar state="retry-scheduled" offline={false} waitingCount={1} attentionCount={0} retryableCount={1} onOpenAttention={() => {}} />);
       const retrying = renderToStaticMarkup(<SyncStatusBar state="retrying" offline={false} waitingCount={1} attentionCount={0} />);
-      expect(scheduled).toContain("Saved on this device • We&#x27;ll try again when the connection improves.");
+      expect(scheduled).toContain("Photo saved on this device. Try again when the connection improves.");
       expect(scheduled).toContain("Details");
-      expect(retrying).toContain("Retrying upload…");
+      expect(retrying).toContain("Uploading photo…");
     });
 
     it("shows safe retryable diagnostics in the details modal", () => {

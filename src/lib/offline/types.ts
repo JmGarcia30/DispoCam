@@ -3,7 +3,8 @@ export const OFFLINE_PHOTO_STATUSES = ["pending", "uploading", "uploaded", "fail
 export type OfflinePhotoStatus = (typeof OFFLINE_PHOTO_STATUSES)[number];
 export type SyncFailureKind = "retryable" | "attention";
 export type SyncFailureStage = "pass" | "sign" | "cloudinary" | "cloudinary-direct" | "proxy" | "cloudinary-server" | "register";
-export type UploadMethod = "direct" | "server-fallback";
+export type UploadMethod = "direct" | "server-fallback" | "binary-server-fallback";
+export type UploadTransport = "binary-proxy";
 export type CameraPageMode = "real-camera-route" | "restored-offline-shell";
 
 export interface OfflinePhoto {
@@ -25,6 +26,7 @@ export interface OfflinePhoto {
   failureStatus?: number;
   failureKind?: SyncFailureKind;
   failureMethod?: UploadMethod;
+  failureTransport?: UploadTransport;
   processedByteSize?: number;
   failurePageMode?: CameraPageMode;
   preferServerFallback?: boolean;

@@ -1,14 +1,14 @@
 import { canReachApplication } from "@/lib/network/connectivity";
 import { offlinePhotoStore, type OfflinePhotoStore } from "@/lib/offline/database";
 import { calculateRetryDelay } from "@/lib/offline/retry";
-import type { CameraPageMode, OfflinePhoto, SyncFailureStage, UploadMethod } from "@/lib/offline/types";
+import type { CameraPageMode, OfflinePhoto, SyncFailureStage, UploadMethod, UploadTransport } from "@/lib/offline/types";
 import { photoSyncChannel } from "@/lib/offline/channel";
 import { createBrowserUuid } from "@/lib/browser/uuid";
 import { FetchTimeoutError, fetchWithTimeout } from "@/lib/network/fetch-timeout";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { preprocessImage, type ProcessedImage } from "@/lib/camera/preprocess";
 import { PROXY_IMAGE_JPEG_QUALITY, PROXY_IMAGE_MAX_BYTES, PROXY_IMAGE_MAX_DIMENSION } from "@/lib/network/proxy-upload";
-import { safeUploadDiagnostic, sameOriginMultipartPost, uploadDiagnosticsEnabled } from "@/lib/network/upload-diagnostics";
+import { safeUploadDiagnostic } from "@/lib/network/upload-diagnostics";
 
 export { fetchWithTimeout } from "@/lib/network/fetch-timeout";
 
@@ -38,6 +38,7 @@ export interface SyncDiagnostic {
   code: string;
   message: string;
   method?: UploadMethod;
+  transport?: UploadTransport;
   processedByteSize?: number;
   pageMode?: CameraPageMode;
 }
@@ -52,6 +53,7 @@ export interface SyncDependencies {
   claimLeaseMs?: number;
   claimId?: () => string;
   pageMode?: CameraPageMode;
+  preferServerFallback?: () => boolean;
 }
 
 interface ApiFailureBody {
@@ -202,29 +204,11 @@ async function uploadThroughServer(
   pageMode: CameraPageMode,
 ): Promise<void> {
   const proxyImage = await createProxyUploadBlob(photo.image);
-  const form = new FormData();
-  form.set("clientUploadId", photo.id);
-  form.set("intentId", intentId);
-  form.set("capturedAt", photo.capturedAt);
-  form.set("image", proxyImage, `${photo.id}.jpg`);
   const endpoint = buildProxyEndpoint(token);
   const currentOrigin = typeof window === "undefined" ? undefined : window.location.origin;
   const endpointOrigin = typeof window === "undefined" ? undefined : new URL(endpoint).origin;
   if (currentOrigin && endpointOrigin !== currentOrigin) {
-    throw new SyncRequestError("proxy", 400, "invalid_proxy_origin", "The upload proxy origin is invalid.", "server-fallback");
-  }
-
-  if (uploadDiagnosticsEnabled()) {
-    const probe = new FormData();
-    probe.set("marker", "dispocam-probe");
-    probe.set("sample", new Blob([new Uint8Array(1_024)], { type: "application/octet-stream" }), "probe.bin");
-    try {
-      const probeUrl = typeof window === "undefined" ? "/api/health/upload-probe" : new URL("/api/health/upload-probe", window.location.origin).toString();
-      const response = await fetchWithTimeout(fetcher, probeUrl, sameOriginMultipartPost(probe), NETWORK_TIMEOUTS.healthMs);
-      safeUploadDiagnostic("upload_probe_response", { status: response.status });
-    } catch (error) {
-      safeUploadDiagnostic("upload_probe_rejected", { errorName: error instanceof Error ? error.name : "UnknownError", errorMessage: error instanceof Error ? error.message : "Unknown error" });
-    }
+    throw new SyncRequestError("proxy", 400, "invalid_proxy_origin", "The upload proxy origin is invalid.", "binary-server-fallback");
   }
 
   const tracedFetcher: typeof fetch = async (input, init) => {
@@ -262,14 +246,38 @@ async function uploadThroughServer(
     await requestJson(
       tracedFetcher,
       endpoint,
-      sameOriginMultipartPost(form),
+      binaryProxyRequestInit(proxyImage, photo, intentId),
       "proxy",
       NETWORK_TIMEOUTS.cloudinaryUploadMs,
     );
   } catch (error) {
-    if (error instanceof SyncRequestError) throw new SyncRequestError(error.stage, error.status, error.code, error.message, "server-fallback");
+    if (error instanceof SyncRequestError) throw new SyncRequestError(error.stage, error.status, error.code, error.message, "binary-server-fallback");
     throw error;
   }
+}
+
+export function binaryProxyRequestInit(image: Blob, photo: Pick<OfflinePhoto, "id" | "capturedAt">, intentId: string): RequestInit {
+  return {
+    method: "POST",
+    body: image,
+    headers: {
+      "Content-Type": image.type || "image/jpeg",
+      "X-Client-Upload-Id": photo.id,
+      "X-Upload-Intent-Id": intentId,
+      "X-Captured-At": photo.capturedAt,
+    },
+    credentials: "same-origin",
+    cache: "no-store",
+  };
+}
+
+export function isIosSafari(
+  userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+  platform = typeof navigator === "undefined" ? "" : navigator.platform,
+  maxTouchPoints = typeof navigator === "undefined" ? 0 : navigator.maxTouchPoints,
+): boolean {
+  const ios = /iPad|iPhone|iPod/i.test(userAgent) || (platform === "MacIntel" && maxTouchPoints > 1);
+  return ios && /WebKit/i.test(userAgent) && !/(CriOS|FxiOS|EdgiOS|OPiOS)/i.test(userAgent);
 }
 
 export function buildProxyEndpoint(token: string, origin = typeof window === "undefined" ? undefined : window.location.origin): string {
@@ -325,9 +333,9 @@ async function processClaimedPhoto(
   initialPhoto: OfflinePhoto,
   token: string,
   claimId: string,
-  dependencies: Required<Pick<SyncDependencies, "store" | "fetch" | "fallbackCanReach" | "now" | "random" | "claimLeaseMs" | "pageMode">>,
+  dependencies: Required<Pick<SyncDependencies, "store" | "fetch" | "fallbackCanReach" | "now" | "random" | "claimLeaseMs" | "pageMode" | "preferServerFallback">>,
 ): Promise<"uploaded" | "retry" | "attention"> {
-  const { store, fetch: fetcher, fallbackCanReach, now, random, claimLeaseMs, pageMode } = dependencies;
+  const { store, fetch: fetcher, fallbackCanReach, now, random, claimLeaseMs, pageMode, preferServerFallback } = dependencies;
   let photo = initialPhoto;
   if (process.env.NODE_ENV !== "production") console.info("DispoCam upload diagnostic", { event: "upload_attempt", processedByteSize: photo.byteSize });
   const renew = (patch: Partial<OfflinePhoto> = {}) =>
@@ -354,7 +362,8 @@ async function processClaimedPhoto(
         cloudinaryUploadedAt: undefined,
       });
 
-      if (photo.preferServerFallback) {
+      if (photo.preferServerFallback || preferServerFallback()) {
+        photo = await renew({ preferServerFallback: true });
         await uploadThroughServer(fetcher, token, photo, signed.data.intentId, pageMode);
         await store.completeClaimedPhoto(photo.id, claimId);
         photoSyncChannel.publish({ type: "upload-completed", cameraPassId: photo.cameraPassId, photoId: photo.id });
@@ -422,6 +431,7 @@ async function processClaimedPhoto(
         failureStage: requestError?.stage,
         failureStatus: requestError?.status,
         failureMethod: requestError?.method,
+        failureTransport: requestError?.method === "binary-server-fallback" ? "binary-proxy" : undefined,
         processedByteSize: photo.byteSize,
         failurePageMode: pageMode,
         lastError: requestError?.message ?? "Upload temporarily failed. We'll keep trying.",
@@ -439,6 +449,7 @@ async function processClaimedPhoto(
       failureStage: requestError.stage,
       failureStatus: requestError.status,
       failureMethod: requestError.method,
+      failureTransport: requestError.method === "binary-server-fallback" ? "binary-proxy" : undefined,
       processedByteSize: photo.byteSize,
       failurePageMode: pageMode,
       lastError: requestError.message,
@@ -465,6 +476,7 @@ async function runBatch(
   const claimLeaseMs = options.claimLeaseMs ?? DEFAULT_CLAIM_LEASE_MS;
   const claimId = (options.claimId ?? createClaimId)();
   const pageMode = options.pageMode ?? "real-camera-route";
+  const preferServerFallback = options.preferServerFallback ?? isIosSafari;
   const base = { uploaded: 0, retryScheduled: 0, needsAttention: 0 };
   let outstanding = await store.getOutstandingPhotos(cameraPassId);
   if (!token) return { ...base, status: "token-unavailable", remaining: outstanding.length };
@@ -532,6 +544,7 @@ async function runBatch(
       claimLeaseMs,
       fallbackCanReach: fallbackReachable,
       pageMode,
+      preferServerFallback,
     });
     if (outcome === "uploaded") base.uploaded += 1;
     else if (outcome === "retry") base.retryScheduled += 1;
@@ -559,7 +572,7 @@ async function runBatch(
     remaining: outstanding.length,
     nextRetryAt: retryDates[0],
     diagnostic: failed?.failureStage && failed.failureCode
-      ? { stage: failed.failureStage, status: failed.failureStatus, code: failed.failureCode, message: failed.lastError ?? "Upload failed.", method: failed.failureMethod, processedByteSize: failed.processedByteSize ?? failed.byteSize, pageMode: failed.failurePageMode }
+      ? { stage: failed.failureStage, status: failed.failureStatus, code: failed.failureCode, message: failed.lastError ?? "Upload failed.", method: failed.failureMethod, transport: failed.failureTransport, processedByteSize: failed.processedByteSize ?? failed.byteSize, pageMode: failed.failurePageMode }
       : undefined,
   };
 }

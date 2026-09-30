@@ -38,6 +38,9 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
 
   const applyUpdate = useCallback((safeToReload: boolean) => {
     if (!waitingRegistration) return false;
+    if (safeToReload) {
+      navigator.serviceWorker?.addEventListener("controllerchange", () => window.location.reload(), { once: true });
+    }
     return activateServiceWorkerUpdate(waitingRegistration, safeToReload);
   }, [waitingRegistration]);
 

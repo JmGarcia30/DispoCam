@@ -1,13 +1,14 @@
 import { canReachApplication } from "@/lib/network/connectivity";
 import { offlinePhotoStore, type OfflinePhotoStore } from "@/lib/offline/database";
 import { calculateRetryDelay } from "@/lib/offline/retry";
-import type { OfflinePhoto, SyncFailureStage, UploadMethod } from "@/lib/offline/types";
+import type { CameraPageMode, OfflinePhoto, SyncFailureStage, UploadMethod } from "@/lib/offline/types";
 import { photoSyncChannel } from "@/lib/offline/channel";
 import { createBrowserUuid } from "@/lib/browser/uuid";
 import { FetchTimeoutError, fetchWithTimeout } from "@/lib/network/fetch-timeout";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { preprocessImage, type ProcessedImage } from "@/lib/camera/preprocess";
 import { PROXY_IMAGE_JPEG_QUALITY, PROXY_IMAGE_MAX_BYTES, PROXY_IMAGE_MAX_DIMENSION } from "@/lib/network/proxy-upload";
+import { safeUploadDiagnostic, uploadDiagnosticsEnabled } from "@/lib/network/upload-diagnostics";
 
 export { fetchWithTimeout } from "@/lib/network/fetch-timeout";
 
@@ -38,6 +39,7 @@ export interface SyncDiagnostic {
   message: string;
   method?: UploadMethod;
   processedByteSize?: number;
+  pageMode?: CameraPageMode;
 }
 
 export interface SyncDependencies {
@@ -49,6 +51,7 @@ export interface SyncDependencies {
   random?: () => number;
   claimLeaseMs?: number;
   claimId?: () => string;
+  pageMode?: CameraPageMode;
 }
 
 interface ApiFailureBody {
@@ -196,6 +199,7 @@ async function uploadThroughServer(
   token: string,
   photo: OfflinePhoto,
   intentId: string,
+  pageMode: CameraPageMode,
 ): Promise<void> {
   const proxyImage = await createProxyUploadBlob(photo.image);
   const form = new FormData();
@@ -203,11 +207,51 @@ async function uploadThroughServer(
   form.set("intentId", intentId);
   form.set("capturedAt", photo.capturedAt);
   form.set("image", proxyImage, `${photo.id}.jpg`);
+  const endpoint = buildProxyEndpoint(token);
+
+  if (uploadDiagnosticsEnabled()) {
+    const probe = new FormData();
+    probe.set("marker", "dispocam-probe");
+    probe.set("sample", new Blob([new Uint8Array(1_024)], { type: "application/octet-stream" }), "probe.bin");
+    try {
+      const probeUrl = typeof window === "undefined" ? "/api/health/upload-probe" : new URL("/api/health/upload-probe", window.location.origin).toString();
+      const response = await fetchWithTimeout(fetcher, probeUrl, { method: "POST", body: probe, credentials: "same-origin", cache: "no-store", redirect: "error" }, NETWORK_TIMEOUTS.healthMs);
+      safeUploadDiagnostic("upload_probe_response", { status: response.status });
+    } catch (error) {
+      safeUploadDiagnostic("upload_probe_rejected", { errorName: error instanceof Error ? error.name : "UnknownError", errorMessage: error instanceof Error ? error.message : "Unknown error" });
+    }
+  }
+
+  const tracedFetcher: typeof fetch = async (input, init) => {
+    const signal = init?.signal;
+    safeUploadDiagnostic("proxy_fetch_start", {
+      endpoint: "/api/camera/[redacted]/uploads/proxy",
+      byteSize: proxyImage.size,
+      hasCameraToken: token.length > 0,
+      pageMode,
+      online: typeof navigator === "undefined" ? undefined : navigator.onLine,
+      signalAborted: signal?.aborted ?? false,
+    });
+    if (signal?.aborted) throw new DOMException("The proxy request signal was already aborted.", "AbortError");
+    try {
+      const response = await fetcher(input, init);
+      safeUploadDiagnostic("proxy_fetch_response", { status: response.status });
+      return response;
+    } catch (error) {
+      safeUploadDiagnostic("proxy_fetch_rejected", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+        aborted: signal?.aborted ?? false,
+        timeout: signal?.aborted ?? false,
+      });
+      throw error;
+    }
+  };
   try {
     await requestJson(
-      fetcher,
-      `/api/camera/${encodeURIComponent(token)}/uploads/proxy`,
-      { method: "POST", body: form },
+      tracedFetcher,
+      endpoint,
+      { method: "POST", body: form, credentials: "same-origin", cache: "no-store", redirect: "error" },
       "proxy",
       NETWORK_TIMEOUTS.cloudinaryUploadMs,
     );
@@ -215,6 +259,11 @@ async function uploadThroughServer(
     if (error instanceof SyncRequestError) throw new SyncRequestError(error.stage, error.status, error.code, error.message, "server-fallback");
     throw error;
   }
+}
+
+export function buildProxyEndpoint(token: string, origin = typeof window === "undefined" ? undefined : window.location.origin): string {
+  const relative = `/api/camera/${encodeURIComponent(token)}/uploads/proxy`;
+  return origin ? new URL(relative, origin).toString() : relative;
 }
 
 export async function createProxyUploadBlob(
@@ -265,9 +314,9 @@ async function processClaimedPhoto(
   initialPhoto: OfflinePhoto,
   token: string,
   claimId: string,
-  dependencies: Required<Pick<SyncDependencies, "store" | "fetch" | "fallbackCanReach" | "now" | "random" | "claimLeaseMs">>,
+  dependencies: Required<Pick<SyncDependencies, "store" | "fetch" | "fallbackCanReach" | "now" | "random" | "claimLeaseMs" | "pageMode">>,
 ): Promise<"uploaded" | "retry" | "attention"> {
-  const { store, fetch: fetcher, fallbackCanReach, now, random, claimLeaseMs } = dependencies;
+  const { store, fetch: fetcher, fallbackCanReach, now, random, claimLeaseMs, pageMode } = dependencies;
   let photo = initialPhoto;
   if (process.env.NODE_ENV !== "production") console.info("DispoCam upload diagnostic", { event: "upload_attempt", processedByteSize: photo.byteSize });
   const renew = (patch: Partial<OfflinePhoto> = {}) =>
@@ -295,7 +344,7 @@ async function processClaimedPhoto(
       });
 
       if (photo.preferServerFallback) {
-        await uploadThroughServer(fetcher, token, photo, signed.data.intentId);
+        await uploadThroughServer(fetcher, token, photo, signed.data.intentId, pageMode);
         await store.completeClaimedPhoto(photo.id, claimId);
         photoSyncChannel.publish({ type: "upload-completed", cameraPassId: photo.cameraPassId, photoId: photo.id });
         photoSyncChannel.publish({ type: "shot-count-changed", cameraPassId: photo.cameraPassId });
@@ -308,7 +357,7 @@ async function processClaimedPhoto(
       } catch (error) {
         if (isDirectTransportFailure(error) && await fallbackCanReach()) {
           photo = await renew({ preferServerFallback: true });
-          await uploadThroughServer(fetcher, token, photo, signed.data.intentId);
+          await uploadThroughServer(fetcher, token, photo, signed.data.intentId, pageMode);
           await store.completeClaimedPhoto(photo.id, claimId);
           photoSyncChannel.publish({ type: "upload-completed", cameraPassId: photo.cameraPassId, photoId: photo.id });
           photoSyncChannel.publish({ type: "shot-count-changed", cameraPassId: photo.cameraPassId });
@@ -363,6 +412,7 @@ async function processClaimedPhoto(
         failureStatus: requestError?.status,
         failureMethod: requestError?.method,
         processedByteSize: photo.byteSize,
+        failurePageMode: pageMode,
         lastError: requestError?.message ?? "Upload temporarily failed. We'll keep trying.",
         nextRetryAt: new Date(now().getTime() + delay).toISOString(),
         claimId: undefined,
@@ -379,6 +429,7 @@ async function processClaimedPhoto(
       failureStatus: requestError.status,
       failureMethod: requestError.method,
       processedByteSize: photo.byteSize,
+      failurePageMode: pageMode,
       lastError: requestError.message,
       nextRetryAt: undefined,
       claimId: undefined,
@@ -402,6 +453,7 @@ async function runBatch(
   const random = options.random ?? Math.random;
   const claimLeaseMs = options.claimLeaseMs ?? DEFAULT_CLAIM_LEASE_MS;
   const claimId = (options.claimId ?? createClaimId)();
+  const pageMode = options.pageMode ?? "real-camera-route";
   const base = { uploaded: 0, retryScheduled: 0, needsAttention: 0 };
   let outstanding = await store.getOutstandingPhotos(cameraPassId);
   if (!token) return { ...base, status: "token-unavailable", remaining: outstanding.length };
@@ -468,6 +520,7 @@ async function runBatch(
       random,
       claimLeaseMs,
       fallbackCanReach: fallbackReachable,
+      pageMode,
     });
     if (outcome === "uploaded") base.uploaded += 1;
     else if (outcome === "retry") base.retryScheduled += 1;
@@ -495,7 +548,7 @@ async function runBatch(
     remaining: outstanding.length,
     nextRetryAt: retryDates[0],
     diagnostic: failed?.failureStage && failed.failureCode
-      ? { stage: failed.failureStage, status: failed.failureStatus, code: failed.failureCode, message: failed.lastError ?? "Upload failed.", method: failed.failureMethod, processedByteSize: failed.processedByteSize ?? failed.byteSize }
+      ? { stage: failed.failureStage, status: failed.failureStatus, code: failed.failureCode, message: failed.lastError ?? "Upload failed.", method: failed.failureMethod, processedByteSize: failed.processedByteSize ?? failed.byteSize, pageMode: failed.failurePageMode }
       : undefined,
   };
 }

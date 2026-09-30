@@ -6,11 +6,12 @@ import { offlinePhotoStore } from "@/lib/offline/database";
 import { syncCameraPhotos, type SyncBatchResult } from "@/lib/offline/sync";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { preparePhotosForManualRetry } from "@/lib/offline/manual-retry";
+import type { CameraPageMode } from "@/lib/offline/types";
 
 export type PhotoSyncUiState = "idle" | "checking-connection" | "uploading" | "retrying" | "waiting-for-connection" | "retry-scheduled" | "needs-attention";
 type RunKind = "automatic" | "retry";
 
-export function usePhotoSync(cameraPassId: string, cameraToken: string | null) {
+export function usePhotoSync(cameraPassId: string, cameraToken: string | null, pageMode: CameraPageMode) {
   const { check: checkNetwork, online: networkOnline } = useNetworkStatus();
   const [state, setState] = useState<PhotoSyncUiState>("idle");
   const [lastResult, setLastResult] = useState<SyncBatchResult | null>(null);
@@ -44,11 +45,11 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null) {
         return applyResult({ status: "waiting-for-connection", uploaded: 0, retryScheduled: 0, needsAttention: 0, remaining: outstanding.length });
       }
       setState(kind === "retry" ? "retrying" : "uploading");
-      return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, { canReach: async () => true }));
+      return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, { canReach: async () => true, pageMode }));
     })().finally(() => { activeRun.current = null; });
     activeRun.current = batch;
     return batch;
-  }, [applyResult, cameraPassId, cameraToken, checkNetwork]);
+  }, [applyResult, cameraPassId, cameraToken, checkNetwork, pageMode]);
 
   useEffect(() => { runRef.current = run; }, [run]);
 
@@ -62,11 +63,11 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null) {
       }
       await preparePhotosForManualRetry(cameraPassId, photoId);
       setState("retrying");
-      return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, { canReach: async () => true }));
+      return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, { canReach: async () => true, pageMode }));
     })().finally(() => { activeRun.current = null; });
     activeRun.current = batch;
     return batch;
-  }, [applyResult, cameraPassId, cameraToken, checkNetwork]);
+  }, [applyResult, cameraPassId, cameraToken, checkNetwork, pageMode]);
 
   const notifyPhotoCaptured = useCallback(() => { if (networkOnline) void run(); }, [networkOnline, run]);
 

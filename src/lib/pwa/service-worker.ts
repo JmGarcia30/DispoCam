@@ -16,6 +16,7 @@ export async function registerDispoCamServiceWorker(
 ): Promise<ServiceWorkerRegistration | null> {
   if (!container) return null;
   const registration = await container.register(SERVICE_WORKER_PATH, { scope: "/" });
+  void registration.update?.().catch(() => undefined);
   if (registration.waiting) options.onUpdateAvailable?.(registration);
   registration.addEventListener("updatefound", () => {
     const installing = registration.installing;

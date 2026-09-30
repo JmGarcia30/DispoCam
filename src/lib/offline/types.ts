@@ -4,6 +4,7 @@ export type OfflinePhotoStatus = (typeof OFFLINE_PHOTO_STATUSES)[number];
 export type SyncFailureKind = "retryable" | "attention";
 export type SyncFailureStage = "pass" | "sign" | "cloudinary" | "cloudinary-direct" | "proxy" | "cloudinary-server" | "register";
 export type UploadMethod = "direct" | "server-fallback";
+export type CameraPageMode = "real-camera-route" | "restored-offline-shell";
 
 export interface OfflinePhoto {
   /** Stable client upload UUID. It must also be used by the future sync API calls. */
@@ -25,6 +26,7 @@ export interface OfflinePhoto {
   failureKind?: SyncFailureKind;
   failureMethod?: UploadMethod;
   processedByteSize?: number;
+  failurePageMode?: CameraPageMode;
   preferServerFallback?: boolean;
   lastAttemptAt?: string;
   nextRetryAt?: string;

@@ -258,6 +258,7 @@ export class OfflinePhotoStore {
       failureStage: undefined,
       failureStatus: undefined,
       failureMethod: undefined,
+      failurePageMode: undefined,
       lastError: undefined,
       nextRetryAt: undefined,
       claimId: undefined,

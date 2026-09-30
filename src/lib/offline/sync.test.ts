@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfflinePhotoStore } from "@/lib/offline/database";
-import { createProxyUploadBlob, fetchWithTimeout, isDirectTransportFailure, isRetryableStatus, requestJson, SyncRequestError, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
+import { buildProxyEndpoint, createProxyUploadBlob, fetchWithTimeout, isDirectTransportFailure, isRetryableStatus, requestJson, SyncRequestError, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
 import { PROXY_IMAGE_MAX_BYTES, VERCEL_FUNCTION_BODY_LIMIT_BYTES } from "@/lib/network/proxy-upload";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { preparePhotosForManualRetry } from "@/lib/offline/manual-retry";
@@ -125,6 +125,41 @@ describe("photo synchronization", () => {
     expect(body.get("image")).toBeInstanceOf(Blob);
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/register"))).toBe(false);
     expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("uploads a 700 KB photo through an absolute same-origin proxy URL with a fresh signal", async () => {
+    await store.clearPhotosForPass(PASS_ID);
+    const imageBytes = new Uint8Array(700_000);
+    imageBytes.set([0xff, 0xd8, 0xff]);
+    await store.storePhoto({
+      id: PHOTO_ID,
+      cameraPassId: PASS_ID,
+      image: new Blob([imageBytes], { type: "image/jpeg" }),
+      capturedAt: "2029-12-31T22:00:00.000Z",
+      width: 1600,
+      height: 1200,
+    });
+    const signals: AbortSignal[] = [];
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url).endsWith(`/camera/${TOKEN}`)) return pass();
+      if (String(url).endsWith("/uploads/sign")) return signed();
+      signals.push(init!.signal!);
+      if (String(url).includes("cloudinary.test")) throw new TypeError("Load failed");
+      return json({ data: { id: "server-photo" } }, 201);
+    });
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
+    expect(result).toMatchObject({ status: "complete", uploaded: 1 });
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).not.toBe(signals[1]);
+    expect(signals[1].aborted).toBe(false);
+    const proxyCall = fetcher.mock.calls.find(([url]) => String(url).endsWith("/uploads/proxy"))!;
+    expect((proxyCall[1]?.body as FormData).get("image")).toBeInstanceOf(Blob);
+    expect(((proxyCall[1]?.body as FormData).get("image") as Blob).size).toBe(700_000);
+    expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("builds an absolute same-origin proxy URL without exposing another host", () => {
+    expect(buildProxyEndpoint("a/b", "https://camera.example")).toBe("https://camera.example/api/camera/a%2Fb/uploads/proxy");
   });
 
   it("creates a fallback-only derivative under the verified proxy threshold", async () => {

@@ -9,6 +9,7 @@ interface SyncStatusBarProps {
   waitingCount: number;
   attentionCount: number;
   retryableCount?: number;
+  authenticationRequired?: boolean;
   onOpenAttention?: () => void;
   className?: string;
 }
@@ -19,6 +20,7 @@ export function SyncStatusBar({
   waitingCount,
   attentionCount,
   retryableCount = 0,
+  authenticationRequired = false,
   onOpenAttention,
   className = "",
 }: SyncStatusBarProps) {
@@ -26,7 +28,9 @@ export function SyncStatusBar({
   let label = "All photos saved";
   let isActionable = false;
 
-  if (attentionCount > 0 || state === "needs-attention") {
+  if (authenticationRequired && waitingCount > 0) {
+    label = "Photo saved on this device • Reopen your wedding camera link to upload";
+  } else if (attentionCount > 0 || state === "needs-attention") {
     label = attentionCount === 1 ? "1 photo couldn't be uploaded" : `${attentionCount} photos need attention`;
     isActionable = true;
   } else if (offline || state === "waiting-for-connection" || state === "checking-connection") {

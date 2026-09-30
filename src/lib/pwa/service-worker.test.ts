@@ -7,7 +7,7 @@ import {
 
 describe("service worker lifecycle", () => {
   it("registers the worker at the application scope", async () => {
-    const registration = Object.assign(new EventTarget(), { waiting: null, installing: null });
+    const registration = Object.assign(new EventTarget(), { waiting: null, installing: null, update: vi.fn().mockResolvedValue(undefined) });
     const container = Object.assign(new EventTarget(), {
       controller: null,
       register: vi.fn().mockResolvedValue(registration),
@@ -15,6 +15,7 @@ describe("service worker lifecycle", () => {
 
     expect(await registerDispoCamServiceWorker({}, container)).toBe(registration);
     expect(container.register).toHaveBeenCalledWith(SERVICE_WORKER_PATH, { scope: "/" });
+    expect(registration.update).toHaveBeenCalledOnce();
   });
 
   it("does not activate an update until the caller says reload is safe", () => {

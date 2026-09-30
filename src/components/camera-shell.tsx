@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { canReachApplication } from "@/lib/network/connectivity";
 import { offlinePhotoStore } from "@/lib/offline/database";
 import { fingerprintCameraToken } from "@/lib/security/browser-token";
-import type { OfflineCameraSession } from "@/lib/offline/types";
+import type { CameraPageMode, OfflineCameraSession } from "@/lib/offline/types";
 import { resolveWeddingConfig, DEFAULT_WEDDING_CONFIG } from "@/lib/wedding/config";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { DisposableCamera } from "@/components/disposable-camera";
@@ -39,7 +39,7 @@ function readCameraToken(): string | null {
   }
 }
 
-export function CameraShell() {
+export function CameraShell({ pageMode }: { pageMode: CameraPageMode }) {
   const [resolved, setResolved] = useState<{
     token: string | null;
     session: OfflineCameraSession;
@@ -303,6 +303,7 @@ export function CameraShell() {
       offline={resolved.offline}
       onSessionUpdated={updateResolvedSession}
       onBackToPass={() => setCurrentScreen("welcome")}
+      pageMode={pageMode}
     />
   );
 }

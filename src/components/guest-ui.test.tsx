@@ -184,6 +184,14 @@ describe("Guest-facing UI Components", () => {
       expect(getRetryButtonState("idle", true, false, false)).toMatchObject({ disabled: true, label: "Waiting for connection…" });
       expect(getRetryButtonState("idle", false, true, false)).toMatchObject({ disabled: false, label: "Retry Upload" });
       expect(getRetryButtonState("idle", false, true, true).disabled).toBe(true);
+      expect(getRetryButtonState("idle", false, true, false, true)).toMatchObject({ disabled: true, label: "Reopen camera link" });
+    });
+
+    it("requires the original camera link when the restored shell has no token", () => {
+      const html = renderToStaticMarkup(
+        <SyncStatusBar state="waiting-for-connection" offline={false} waitingCount={1} attentionCount={0} authenticationRequired />,
+      );
+      expect(html).toContain("Reopen your wedding camera link to upload");
     });
   });
 });

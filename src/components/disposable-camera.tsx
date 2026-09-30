@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { CameraSession } from "@/lib/camera/capture";
 import { attachCamera, captureVideoFrame, captureWithTorch, openCamera } from "@/lib/camera/capture";
-import type { OfflineCameraSession } from "@/lib/offline/types";
+import type { CameraPageMode, OfflineCameraSession } from "@/lib/offline/types";
 import { offlinePhotoStore } from "@/lib/offline/database";
 import { requestPhotoBackgroundSync } from "@/lib/pwa/service-worker";
 import { useOfflinePhotos } from "@/hooks/use-offline-photos";
@@ -26,6 +26,7 @@ interface DisposableCameraProps {
   offline: boolean;
   onSessionUpdated: (session: OfflineCameraSession) => void;
   onBackToPass?: () => void;
+  pageMode: CameraPageMode;
 }
 
 export function DisposableCamera({
@@ -35,6 +36,7 @@ export function DisposableCamera({
   offline,
   onSessionUpdated,
   onBackToPass,
+  pageMode,
 }: DisposableCameraProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraRef = useRef<CameraSession | null>(null);
@@ -53,7 +55,7 @@ export function DisposableCamera({
 
   const network = useNetworkStatus();
   const photos = useOfflinePhotos(session.cameraPassId, session.serverRemainingShots);
-  const sync = usePhotoSync(session.cameraPassId, token);
+  const sync = usePhotoSync(session.cameraPassId, token, pageMode);
   const refreshedResultRef = useRef(sync.lastResult);
 
   const failedPhotos = photos.photos.filter((photo) => photo.failureKind === "attention" || photo.failureKind === "retryable");
@@ -602,6 +604,7 @@ export function DisposableCamera({
           waitingCount={photos.localPendingShots}
           attentionCount={attentionPhotos.length}
           retryableCount={retryablePhotos.length}
+          authenticationRequired={!token}
           onOpenAttention={() => setShowAttentionModal(true)}
         />
         {process.env.NODE_ENV !== "production" && (
@@ -628,6 +631,7 @@ export function DisposableCamera({
         syncState={sync.state}
         offline={offline || network.offline}
         backendReachable={sync.reachable}
+        authenticationRequired={!token}
       />
     </main>
   );

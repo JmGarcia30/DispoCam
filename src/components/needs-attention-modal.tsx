@@ -13,6 +13,7 @@ interface NeedsAttentionModalProps {
   syncState: PhotoSyncUiState;
   offline: boolean;
   backendReachable: boolean;
+  authenticationRequired?: boolean;
 }
 
 export function getRetryButtonState(
@@ -20,12 +21,15 @@ export function getRetryButtonState(
   offline: boolean,
   backendReachable: boolean,
   manualRetrying: boolean,
+  authenticationRequired = false,
 ) {
   const syncActive = syncState === "uploading" || syncState === "checking-connection" || syncState === "retrying";
   const waitingForConnection = offline || !backendReachable || syncState === "waiting-for-connection";
   return {
-    disabled: manualRetrying || syncActive || waitingForConnection,
-    label: waitingForConnection
+    disabled: authenticationRequired || manualRetrying || syncActive || waitingForConnection,
+    label: authenticationRequired
+      ? "Reopen camera link"
+      : waitingForConnection
       ? "Waiting for connection…"
       : syncState === "uploading"
         ? "Uploading…"
@@ -43,6 +47,7 @@ export function NeedsAttentionModal({
   syncState,
   offline,
   backendReachable,
+  authenticationRequired = false,
 }: NeedsAttentionModalProps) {
   const [retrying, setRetrying] = useState(false);
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
@@ -54,7 +59,7 @@ export function NeedsAttentionModal({
   const headline = retryableCount === count
     ? count === 1 ? "1 photo is waiting to retry" : `${count} photos are waiting to retry`
     : count === 1 ? "1 photo needs attention" : `${count} photos need attention`;
-  const { disabled: retryDisabled, label: retryLabel } = getRetryButtonState(syncState, offline, backendReachable, retrying);
+  const { disabled: retryDisabled, label: retryLabel } = getRetryButtonState(syncState, offline, backendReachable, retrying, authenticationRequired);
 
   const handleRetryAll = async () => {
     if (retryDisabled) return;
@@ -137,7 +142,9 @@ export function NeedsAttentionModal({
         </div>
 
         <p style={{ fontSize: "14px", color: "#A8A29A", lineHeight: 1.5, marginBottom: "20px" }}>
-          Don’t worry — your photos are safely preserved on this device. You can retry the upload now, or save them directly to your phone.
+          {authenticationRequired
+            ? "Photo saved on this device. Reopen your original wedding camera link to upload it."
+            : "Don’t worry — your photos are safely preserved on this device. You can retry the upload now, or save them directly to your phone."}
         </p>
 
         {/* List of photos with individual actions */}
@@ -180,6 +187,7 @@ export function NeedsAttentionModal({
                   <dl style={{ margin: "5px 0 0", color: "#A8A29A", fontFamily: "var(--font-mono)", fontSize: "9px", lineHeight: 1.5 }}>
                     <div><dt style={{ display: "inline" }}>Stage: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureStage ?? "sync"}</dd></div>
                     {photo.failureMethod && <div><dt style={{ display: "inline" }}>Method: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureMethod}</dd></div>}
+                    {photo.failurePageMode && <div><dt style={{ display: "inline" }}>Page mode: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failurePageMode}</dd></div>}
                     <div><dt style={{ display: "inline" }}>Processed upload: </dt><dd style={{ display: "inline", margin: 0 }}>{((photo.processedByteSize ?? photo.byteSize) / 1_048_576).toFixed(2)} MB</dd></div>
                     <div><dt style={{ display: "inline" }}>Status: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureStatus ?? "network"}</dd></div>
                     <div><dt style={{ display: "inline" }}>Code: </dt><dd style={{ display: "inline", margin: 0 }}>{photo.failureCode}</dd></div>

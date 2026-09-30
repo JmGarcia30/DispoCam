@@ -1,5 +1,5 @@
 /* DisPoCAM foreground-first service worker. Never store camera/API/auth responses here. */
-const VERSION = "v2";
+const VERSION = "v3";
 const SHELL_CACHE = `dispocam-shell-${VERSION}`;
 const ASSET_CACHE = `dispocam-assets-${VERSION}`;
 const CAMERA_SHELL_URL = "/camera/offline-shell";
@@ -7,7 +7,6 @@ const OFFLINE_URL = "/offline";
 const PRECACHE = [CAMERA_SHELL_URL, OFFLINE_URL, "/icons/app-icon.svg"];
 
 self.addEventListener("install", (event) => {
-  self.skipWaiting();
   event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE)));
 });
 

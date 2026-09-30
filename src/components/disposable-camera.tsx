@@ -8,6 +8,8 @@ import { offlinePhotoStore } from "@/lib/offline/database";
 import { requestPhotoBackgroundSync } from "@/lib/pwa/service-worker";
 import { useOfflinePhotos } from "@/hooks/use-offline-photos";
 import { usePhotoSync } from "@/hooks/use-photo-sync";
+import { fetchWithTimeout } from "@/lib/network/fetch-timeout";
+import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import type { WeddingConfig } from "@/lib/wedding/config";
 import { SyncStatusBar } from "@/components/sync-status-bar";
@@ -55,14 +57,14 @@ export function DisposableCamera({
   const refreshedResultRef = useRef(sync.lastResult);
 
   // Filter photos that need attention
-  const attentionPhotos = photos.photos.filter((p) => p.failureKind === "attention" || p.status === "failed");
+  const attentionPhotos = photos.photos.filter((photo) => photo.failureKind === "attention");
 
   // Keep server shot count refreshed when uploads finish
   useEffect(() => {
     if (!token || !sync.lastResult?.uploaded || refreshedResultRef.current === sync.lastResult) return;
     refreshedResultRef.current = sync.lastResult;
     let active = true;
-    void fetch(`/api/camera/${encodeURIComponent(token)}`, { cache: "no-store" })
+    void fetchWithTimeout(fetch, `/api/camera/${encodeURIComponent(token)}`, { cache: "no-store" }, NETWORK_TIMEOUTS.cameraPassMs)
       .then(async (response) => (response.ok ? response.json() : undefined))
       .then(async (payload) => {
         if (!active || !payload?.data) return;
@@ -621,6 +623,9 @@ export function DisposableCamera({
         onClose={() => setShowAttentionModal(false)}
         attentionPhotos={attentionPhotos}
         onRetry={sync.manualRetry}
+        syncState={sync.state}
+        offline={offline || network.offline}
+        backendReachable={sync.reachable}
       />
     </main>
   );

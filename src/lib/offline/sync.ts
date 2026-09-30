@@ -5,6 +5,7 @@ import type { OfflinePhoto, SyncFailureStage } from "@/lib/offline/types";
 import { photoSyncChannel } from "@/lib/offline/channel";
 import { createBrowserUuid } from "@/lib/browser/uuid";
 import { FetchTimeoutError, fetchWithTimeout } from "@/lib/network/fetch-timeout";
+import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 
 export { fetchWithTimeout } from "@/lib/network/fetch-timeout";
 
@@ -100,12 +101,19 @@ export function createClaimId(): string {
   return createBrowserUuid();
 }
 
+export function timeoutForStage(stage: SyncRequestError["stage"]): number {
+  if (stage === "cloudinary") return NETWORK_TIMEOUTS.cloudinaryUploadMs;
+  if (stage === "sign") return NETWORK_TIMEOUTS.uploadSignMs;
+  if (stage === "register") return NETWORK_TIMEOUTS.uploadRegisterMs;
+  return NETWORK_TIMEOUTS.cameraPassMs;
+}
+
 export async function requestJson<T>(
   fetcher: typeof fetch,
   input: string,
   init: RequestInit,
   stage: SyncRequestError["stage"],
-  timeoutMs = 30_000,
+  timeoutMs: number = timeoutForStage(stage),
 ): Promise<T> {
   let response: Response;
   try {
@@ -141,7 +149,7 @@ export async function requestJson<T>(
 }
 
 async function fetchPass(fetcher: typeof fetch, token: string): Promise<PassResponse> {
-  return requestJson(fetcher, `/api/camera/${encodeURIComponent(token)}`, { method: "GET", cache: "no-store" }, "pass");
+  return requestJson(fetcher, `/api/camera/${encodeURIComponent(token)}`, { method: "GET", cache: "no-store" }, "pass", NETWORK_TIMEOUTS.cameraPassMs);
 }
 
 async function requestSignature(fetcher: typeof fetch, token: string, clientUploadId: string): Promise<SignResponse> {
@@ -150,6 +158,7 @@ async function requestSignature(fetcher: typeof fetch, token: string, clientUplo
     `/api/camera/${encodeURIComponent(token)}/uploads/sign`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientUploadId }) },
     "sign",
+    NETWORK_TIMEOUTS.uploadSignMs,
   );
 }
 
@@ -163,7 +172,7 @@ async function uploadToCloudinary(fetcher: typeof fetch, signed: Exclude<SignRes
   form.set("signature", signed.upload.signature);
   const publicIdParts = signed.upload.publicId.split("/");
   form.set("file", image, `${publicIdParts[publicIdParts.length - 1] || "photo"}.jpg`);
-  return requestJson<CloudinaryResponse>(fetcher, signed.uploadUrl, { method: "POST", body: form }, "cloudinary");
+  return requestJson<CloudinaryResponse>(fetcher, signed.uploadUrl, { method: "POST", body: form }, "cloudinary", NETWORK_TIMEOUTS.cloudinaryUploadMs);
 }
 
 async function registerUpload(
@@ -188,6 +197,7 @@ async function registerUpload(
         }),
       },
       "register",
+      NETWORK_TIMEOUTS.uploadRegisterMs,
     );
   } catch (error) {
     // A uniqueness response confirms that the stable clientUploadId is already registered.

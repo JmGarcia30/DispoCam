@@ -12,6 +12,8 @@ import { CameraIcon } from "@/components/icons";
 import { GuestNameStep, needsGuestName } from "@/components/guest-name-step";
 import { createDemoCameraSession } from "@/lib/camera/demo-session";
 import { saveGuestDisplayName } from "@/lib/camera/guest-name";
+import { fetchWithTimeout } from "@/lib/network/fetch-timeout";
+import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 
 interface PassApiResponse {
   data: {
@@ -84,7 +86,7 @@ export function CameraShell() {
 
       if (await canReachApplication()) {
         try {
-          const response = await fetch(`/api/camera/${encodeURIComponent(token)}`, { cache: "no-store" });
+          const response = await fetchWithTimeout(fetch, `/api/camera/${encodeURIComponent(token)}`, { cache: "no-store" }, NETWORK_TIMEOUTS.cameraPassMs);
           if (!response.ok) throw new Error("Camera pass is unavailable.");
           const payload = (await response.json()) as PassApiResponse;
           const session: OfflineCameraSession = {

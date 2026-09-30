@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from "@/lib/network/fetch-timeout";
+import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 
 export type NetworkState = "checking" | "online" | "offline";
 
@@ -9,7 +10,7 @@ export async function canReachApplication(signal?: AbortSignal): Promise<boolean
       method: "HEAD",
       cache: "no-store",
       signal,
-    }, 5_000);
+    }, NETWORK_TIMEOUTS.healthMs);
     return response.ok;
   } catch {
     return false;

@@ -1,7 +1,8 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfflinePhotoStore } from "@/lib/offline/database";
-import { fetchWithTimeout, isRetryableStatus, requestJson, syncCameraPhotos } from "@/lib/offline/sync";
+import { fetchWithTimeout, isRetryableStatus, requestJson, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
+import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 
 const PASS_ID = "11111111-1111-4111-8111-111111111111";
 const TOKEN = "camera-token-with-more-than-thirty-two-characters";
@@ -100,6 +101,46 @@ describe("photo synchronization", () => {
     expect(uploadBody.get("context")).toBe(`intent_id=${INTENT_ID}|client_upload_id=${PHOTO_ID}`);
     expect(uploadBody.get("signature")).toBe("temporary-signature");
     expect(uploadBody.get("file")).toBeInstanceOf(Blob);
+  });
+
+  it("automatically completes an offline capture when backend reachability returns", async () => {
+    const offlineFetcher = vi.fn<typeof fetch>();
+    const waiting = await syncCameraPhotos(PASS_ID, TOKEN, { ...options(offlineFetcher), canReach: async () => false });
+    expect(waiting).toMatchObject({ status: "waiting-for-connection", remaining: 1 });
+    expect(offlineFetcher).not.toHaveBeenCalled();
+    expect(await store.getPhoto(PHOTO_ID)).toMatchObject({ id: PHOTO_ID, status: "pending" });
+
+    const backendPhotos: string[] = [];
+    const onlineFetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockResolvedValueOnce(cloudinary())
+      .mockImplementationOnce(async (_url, init) => {
+        backendPhotos.push(JSON.parse(String(init?.body)).clientUploadId);
+        return registered();
+      });
+    const complete = await syncCameraPhotos(PASS_ID, TOKEN, options(onlineFetcher));
+
+    expect(complete).toMatchObject({ status: "complete", uploaded: 1, remaining: 0 });
+    expect(backendPhotos).toEqual([PHOTO_ID]);
+    expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("allows Cloudinary to take longer than the API timeout without scheduling a retry", async () => {
+    vi.useFakeTimers();
+    expect(NETWORK_TIMEOUTS.cloudinaryUploadMs).toBeGreaterThan(NETWORK_TIMEOUTS.uploadSignMs);
+    expect(NETWORK_TIMEOUTS.cloudinaryUploadMs).toBeGreaterThan(NETWORK_TIMEOUTS.uploadRegisterMs);
+    expect(timeoutForStage("cloudinary")).toBe(90_000);
+    expect(timeoutForStage("sign")).toBe(25_000);
+    const fetcher = vi.fn<typeof fetch>(() => new Promise((resolve) => setTimeout(() => resolve(cloudinary()), 31_000)));
+
+    let settled = false;
+    const pending = requestJson(fetcher, "https://api.cloudinary.test/upload", { method: "POST" }, "cloudinary")
+      .finally(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(pending).resolves.toMatchObject({ public_id: "weddings/pending/photo-one" });
   });
 
   it("completes the full upload when AbortSignal.timeout is unavailable", async () => {

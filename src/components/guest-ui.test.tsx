@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { WelcomeScreen } from "@/components/welcome-screen";
 import { RollFinished } from "@/components/roll-finished";
 import { SyncStatusBar } from "@/components/sync-status-bar";
+import { getRetryButtonState } from "@/components/needs-attention-modal";
 import { resolveWeddingConfig, DEFAULT_WEDDING_CONFIG } from "@/lib/wedding/config";
 
 describe("Guest-facing UI Components", () => {
@@ -110,7 +111,7 @@ describe("Guest-facing UI Components", () => {
           attentionCount={0}
         />,
       );
-      expect(html).toContain("2 photos saved • Waiting for connection");
+      expect(html).toContain("2 photos saved on this device • Waiting for connection");
     });
 
     it("renders needs-attention status when a photo fails", () => {
@@ -123,6 +124,21 @@ describe("Guest-facing UI Components", () => {
         />,
       );
       expect(html).toContain("1 photo couldn&#x27;t be uploaded");
+    });
+
+    it("uses calm retry-scheduled and active retry messages", () => {
+      const scheduled = renderToStaticMarkup(<SyncStatusBar state="retry-scheduled" offline={false} waitingCount={1} attentionCount={0} />);
+      const retrying = renderToStaticMarkup(<SyncStatusBar state="retrying" offline={false} waitingCount={1} attentionCount={0} />);
+      expect(scheduled).toContain("Saved safely. Retrying when connection improves.");
+      expect(retrying).toContain("Retrying upload…");
+    });
+
+    it("disables retry from actual sync and connectivity states", () => {
+      expect(getRetryButtonState("uploading", false, true, false)).toMatchObject({ disabled: true, label: "Uploading…" });
+      expect(getRetryButtonState("retrying", false, true, false)).toMatchObject({ disabled: true, label: "Retrying…" });
+      expect(getRetryButtonState("idle", true, false, false)).toMatchObject({ disabled: true, label: "Waiting for connection…" });
+      expect(getRetryButtonState("idle", false, true, false)).toMatchObject({ disabled: false, label: "Retry Upload" });
+      expect(getRetryButtonState("idle", false, true, true).disabled).toBe(true);
     });
   });
 });

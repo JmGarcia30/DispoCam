@@ -27,16 +27,18 @@ export function SyncStatusBar({
   if (attentionCount > 0 || state === "needs-attention") {
     label = attentionCount === 1 ? "1 photo couldn't be uploaded" : `${attentionCount} photos need attention`;
     isActionable = true;
-  } else if (offline || state === "waiting-for-connection") {
+  } else if (offline || state === "waiting-for-connection" || state === "checking-connection") {
     if (waitingCount > 0) {
-      label = waitingCount === 1 ? "1 photo saved • Waiting for connection" : `${waitingCount} photos saved • Waiting for connection`;
+      label = waitingCount === 1 ? "Saved on this device • Waiting for connection" : `${waitingCount} photos saved on this device • Waiting for connection`;
     } else {
       label = "Offline — photos save safely here";
     }
+  } else if (state === "retrying") {
+    label = "Retrying upload…";
   } else if (state === "uploading") {
     label = waitingCount > 0 ? `Uploading ${waitingCount} ${waitingCount === 1 ? "photo" : "photos"}…` : "Syncing photos…";
   } else if (state === "retry-scheduled") {
-    label = "Upload temporarily failed. We'll keep trying.";
+    label = "Saved safely. Retrying when connection improves.";
   }
 
   const content = (

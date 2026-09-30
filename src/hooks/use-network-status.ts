@@ -1,16 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { canReachApplication, type NetworkState } from "@/lib/network/connectivity";
 
 export function useNetworkStatus(probeIntervalMs = 30_000) {
   const [state, setState] = useState<NetworkState>("checking");
+  const activeCheck = useRef<Promise<boolean> | null>(null);
 
-  const check = useCallback(async () => {
-    setState((current) => (current === "offline" ? "checking" : current));
-    const reachable = await canReachApplication();
-    setState(reachable ? "online" : "offline");
-    return reachable;
+  const check = useCallback(() => {
+    if (activeCheck.current) return activeCheck.current;
+    setState("checking");
+    const probe = canReachApplication().then((reachable) => {
+      setState(reachable ? "online" : "offline");
+      return reachable;
+    }).finally(() => {
+      activeCheck.current = null;
+    });
+    activeCheck.current = probe;
+    return probe;
   }, []);
 
   useEffect(() => {

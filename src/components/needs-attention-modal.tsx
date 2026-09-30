@@ -3,12 +3,36 @@
 import React, { useState } from "react";
 import type { OfflinePhoto } from "@/lib/offline/types";
 import { AlertCircleIcon, CheckIcon } from "@/components/icons";
+import type { PhotoSyncUiState } from "@/hooks/use-photo-sync";
 
 interface NeedsAttentionModalProps {
   isOpen: boolean;
   onClose: () => void;
   attentionPhotos: OfflinePhoto[];
   onRetry: (photoId?: string) => Promise<unknown>;
+  syncState: PhotoSyncUiState;
+  offline: boolean;
+  backendReachable: boolean;
+}
+
+export function getRetryButtonState(
+  syncState: PhotoSyncUiState,
+  offline: boolean,
+  backendReachable: boolean,
+  manualRetrying: boolean,
+) {
+  const syncActive = syncState === "uploading" || syncState === "checking-connection" || syncState === "retrying";
+  const waitingForConnection = offline || !backendReachable || syncState === "waiting-for-connection";
+  return {
+    disabled: manualRetrying || syncActive || waitingForConnection,
+    label: waitingForConnection
+      ? "Waiting for connection…"
+      : syncState === "uploading"
+        ? "Uploading…"
+        : manualRetrying || syncState === "retrying"
+          ? "Retrying…"
+          : "Retry Upload",
+  };
 }
 
 export function NeedsAttentionModal({
@@ -16,6 +40,9 @@ export function NeedsAttentionModal({
   onClose,
   attentionPhotos,
   onRetry,
+  syncState,
+  offline,
+  backendReachable,
 }: NeedsAttentionModalProps) {
   const [retrying, setRetrying] = useState(false);
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
@@ -24,8 +51,10 @@ export function NeedsAttentionModal({
 
   const count = attentionPhotos.length;
   const headline = count === 1 ? "1 photo couldn't be uploaded" : `${count} photos couldn't be uploaded`;
+  const { disabled: retryDisabled, label: retryLabel } = getRetryButtonState(syncState, offline, backendReachable, retrying);
 
   const handleRetryAll = async () => {
+    if (retryDisabled) return;
     setRetrying(true);
     try {
       await onRetry();
@@ -179,7 +208,7 @@ export function NeedsAttentionModal({
         <div style={{ display: "flex", gap: "10px" }}>
           <button
             type="button"
-            disabled={retrying}
+            disabled={retryDisabled}
             onClick={() => void handleRetryAll()}
             style={{
               flex: 1,
@@ -190,11 +219,12 @@ export function NeedsAttentionModal({
               color: "#181715",
               fontSize: "14px",
               fontWeight: 600,
-              cursor: retrying ? "wait" : "pointer",
+              cursor: retryDisabled ? "not-allowed" : "pointer",
+              opacity: retryDisabled ? 0.65 : 1,
               transition: "background-color 0.15s ease",
             }}
           >
-            {retrying ? "Retrying…" : "Retry Upload"}
+            {retryLabel}
           </button>
           <button
             type="button"

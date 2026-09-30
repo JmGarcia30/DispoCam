@@ -55,10 +55,7 @@ export function NeedsAttentionModal({
   if (!isOpen) return null;
 
   const count = failedPhotos.length;
-  const retryableCount = failedPhotos.filter((photo) => photo.failureKind === "retryable").length;
-  const headline = retryableCount === count
-    ? count === 1 ? "1 photo is waiting to retry" : `${count} photos are waiting to retry`
-    : count === 1 ? "1 photo needs attention" : `${count} photos need attention`;
+  const headline = count === 1 ? "1 photo is ready to upload" : `${count} photos are ready to upload`;
   const { disabled: retryDisabled, label: retryLabel } = getRetryButtonState(syncState, offline, backendReachable, retrying, authenticationRequired);
 
   const handleRetryAll = async () => {
@@ -144,7 +141,7 @@ export function NeedsAttentionModal({
         <p style={{ fontSize: "14px", color: "#A8A29A", lineHeight: 1.5, marginBottom: "20px" }}>
           {authenticationRequired
             ? "Photo saved on this device. Reopen your original wedding camera link to upload it."
-            : "Don’t worry — your photos are safely preserved on this device. You can retry the upload now, or save them directly to your phone."}
+            : "Your photos are safely preserved on this device. Upload them now, one at a time, or save them directly to your phone."}
         </p>
 
         {/* List of photos with individual actions */}
@@ -179,9 +176,9 @@ export function NeedsAttentionModal({
                 </span>
                 </div>
                 <small style={{ color: photo.failureKind === "retryable" ? "#A8D5BA" : "#F6C177", fontSize: "11px" }}>
-                  {photo.failureKind === "retryable"
-                    ? "Your photo is safe. We'll retry automatically."
-                    : "This photo needs manual attention."}
+                  {photo.failureKind === "attention"
+                    ? "This photo needs manual attention."
+                    : "Your photo is safe. Upload it when you're ready."}
                 </small>
                 {photo.failureCode && (
                   <dl style={{ margin: "5px 0 0", color: "#A8A29A", fontFamily: "var(--font-mono)", fontSize: "9px", lineHeight: 1.5 }}>
@@ -246,7 +243,7 @@ export function NeedsAttentionModal({
               transition: "background-color 0.15s ease",
             }}
           >
-            {retryLabel}
+            {retryLabel === "Retry Upload" ? (syncState === "retry-scheduled" ? "Try Again" : "Upload Saved Photos") : retryLabel}
           </button>
           <button
             type="button"

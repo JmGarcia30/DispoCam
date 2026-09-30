@@ -210,6 +210,45 @@ describe("photo synchronization", () => {
     expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
   });
 
+  it("uploads a three-photo saved queue one record at a time", async () => {
+    await store.clearPhotosForPass(PASS_ID);
+    const ids = [PHOTO_ID, "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "dddddddd-dddd-4ddd-8ddd-dddddddddddd"];
+    for (const [index, id] of ids.entries()) {
+      await store.storePhoto({ id, cameraPassId: PASS_ID, image: new Blob([new Uint8Array([0xff, 0xd8, 0xff, index])], { type: "image/jpeg" }), capturedAt: `2029-12-31T22:0${index}:00.000Z`, width: 1200, height: 900 });
+    }
+    const adminPhotos: string[] = [];
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url).endsWith(`/camera/${TOKEN}`)) return pass();
+      if (String(url).endsWith("/uploads/sign")) {
+        const id = JSON.parse(String(init?.body)).clientUploadId;
+        return signed(crypto.randomUUID(), `weddings/pending/${id}`);
+      }
+      const id = new Headers(init?.headers).get("X-Client-Upload-Id")!;
+      adminPhotos.push(id);
+      return json({ data: { id: `server-${id}`, client_upload_id: id } }, 201);
+    });
+    for (const id of ids) {
+      const result = await syncCameraPhotos(PASS_ID, TOKEN, { ...options(fetcher), preferServerFallback: () => true, photoIds: [id] });
+      expect(result.uploaded).toBe(1);
+    }
+    expect(adminPhotos).toEqual(ids);
+    expect(await store.getOutstandingPhotos(PASS_ID)).toEqual([]);
+  });
+
+  it("stops a saved queue after photo two fails and preserves photos two and three", async () => {
+    await store.clearPhotosForPass(PASS_ID);
+    const ids = [PHOTO_ID, "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "dddddddd-dddd-4ddd-8ddd-dddddddddddd"];
+    for (const id of ids) await store.storePhoto({ id, cameraPassId: PASS_ID, image: new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: "image/jpeg" }), capturedAt: "2029-12-31T22:00:00.000Z", width: 1200, height: 900 });
+    const successful = vi.fn<typeof fetch>().mockResolvedValueOnce(pass()).mockResolvedValueOnce(signed()).mockResolvedValueOnce(json({ data: { id: "server-one" } }, 201));
+    expect((await syncCameraPhotos(PASS_ID, TOKEN, { ...options(successful), preferServerFallback: () => true, photoIds: [ids[0]] })).uploaded).toBe(1);
+    const failed = vi.fn<typeof fetch>().mockResolvedValueOnce(pass()).mockResolvedValueOnce(signed()).mockRejectedValueOnce(new TypeError("Timed out"));
+    const second = await syncCameraPhotos(PASS_ID, TOKEN, { ...options(failed), preferServerFallback: () => true, photoIds: [ids[1]] });
+    expect(second).toMatchObject({ status: "retry-scheduled", uploaded: 0 });
+    expect((await store.getOutstandingPhotos(PASS_ID)).map((photo) => photo.id)).toEqual(ids.slice(1));
+    expect(await store.getPhoto(ids[1])).toMatchObject({ failureKind: "retryable", image: expect.any(Blob) });
+    expect(failed).toHaveBeenCalledTimes(3);
+  });
+
   it("allows a same-origin proxy redirect to resolve to its final response", async () => {
     const finalResponse = json({ data: { id: "server-photo" } }, 201);
     Object.defineProperty(finalResponse, "redirected", { value: true });
@@ -401,6 +440,7 @@ describe("photo synchronization", () => {
     expect(NETWORK_TIMEOUTS.cloudinaryUploadMs).toBeGreaterThan(NETWORK_TIMEOUTS.uploadSignMs);
     expect(NETWORK_TIMEOUTS.cloudinaryUploadMs).toBeGreaterThan(NETWORK_TIMEOUTS.uploadRegisterMs);
     expect(timeoutForStage("cloudinary")).toBe(90_000);
+    expect(timeoutForStage("proxy")).toBe(25_000);
     expect(timeoutForStage("sign")).toBe(25_000);
     const fetcher = vi.fn<typeof fetch>(() => new Promise((resolve) => setTimeout(() => resolve(cloudinary()), 31_000)));
 
@@ -441,6 +481,22 @@ describe("photo synchronization", () => {
     await rejection;
     expect((fetcher.mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(true);
     vi.useRealTimers();
+  });
+
+  it("aborts a binary proxy request after 25 seconds", async () => {
+    vi.useFakeTimers();
+    const originalTimeout = Object.getOwnPropertyDescriptor(AbortSignal, "timeout");
+    Object.defineProperty(AbortSignal, "timeout", { configurable: true, value: undefined });
+    const fetcher = vi.fn<typeof fetch>((_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    const pending = requestJson(fetcher, "/api/camera/redacted/uploads/proxy", { method: "POST" }, "proxy");
+    const rejection = expect(pending).rejects.toMatchObject({ stage: "proxy", status: 408, code: "request_timeout" });
+    await vi.advanceTimersByTimeAsync(24_999);
+    expect((fetcher.mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await rejection;
+    if (originalTimeout) Object.defineProperty(AbortSignal, "timeout", originalTimeout);
   });
 
   it("classifies a sign timeout as retryable", async () => {

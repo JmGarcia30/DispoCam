@@ -8,9 +8,7 @@ export async function preparePhotosForManualRetry(
   store: OfflinePhotoStore = offlinePhotoStore,
 ): Promise<number> {
   const outstanding = await store.getOutstandingPhotos(cameraPassId);
-  const candidates = photoId
-    ? outstanding.filter((photo) => photo.id === photoId)
-    : outstanding.filter((photo) => photo.failureKind === "attention" || photo.failureKind === "retryable");
+  const candidates = photoId ? outstanding.filter((photo) => photo.id === photoId) : outstanding;
 
   for (const photo of candidates) {
     await store.retryPhoto(photo.id);

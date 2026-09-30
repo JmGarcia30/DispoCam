@@ -54,6 +54,7 @@ export interface SyncDependencies {
   claimId?: () => string;
   pageMode?: CameraPageMode;
   preferServerFallback?: () => boolean;
+  photoIds?: readonly string[];
 }
 
 interface ApiFailureBody {
@@ -113,7 +114,8 @@ export function createClaimId(): string {
 }
 
 export function timeoutForStage(stage: SyncRequestError["stage"]): number {
-  if (["cloudinary", "cloudinary-direct", "proxy", "cloudinary-server"].includes(stage)) return NETWORK_TIMEOUTS.cloudinaryUploadMs;
+  if (stage === "proxy") return NETWORK_TIMEOUTS.binaryProxyMs;
+  if (["cloudinary", "cloudinary-direct", "cloudinary-server"].includes(stage)) return NETWORK_TIMEOUTS.cloudinaryUploadMs;
   if (stage === "sign") return NETWORK_TIMEOUTS.uploadSignMs;
   if (stage === "register") return NETWORK_TIMEOUTS.uploadRegisterMs;
   return NETWORK_TIMEOUTS.cameraPassMs;
@@ -248,7 +250,7 @@ async function uploadThroughServer(
       endpoint,
       binaryProxyRequestInit(proxyImage, photo, intentId),
       "proxy",
-      NETWORK_TIMEOUTS.cloudinaryUploadMs,
+      NETWORK_TIMEOUTS.binaryProxyMs,
     );
   } catch (error) {
     if (error instanceof SyncRequestError) throw new SyncRequestError(error.stage, error.status, error.code, error.message, "binary-server-fallback");
@@ -479,6 +481,7 @@ async function runBatch(
   const preferServerFallback = options.preferServerFallback ?? isIosSafari;
   const base = { uploaded: 0, retryScheduled: 0, needsAttention: 0 };
   let outstanding = await store.getOutstandingPhotos(cameraPassId);
+  const eligibleIds = options.photoIds ? new Set(options.photoIds) : undefined;
   if (!token) return { ...base, status: "token-unavailable", remaining: outstanding.length };
   if (!(await reachable())) return { ...base, status: "waiting-for-connection", remaining: outstanding.length };
 
@@ -515,7 +518,7 @@ async function runBatch(
 
   // Existing live intents already hold server capacity; new records consume current remaining shots.
   const nowMs = now().getTime();
-  const candidates = outstanding.filter((photo) => photo.failureKind !== "attention");
+  const candidates = outstanding.filter((photo) => photo.failureKind !== "attention" && (!eligibleIds || eligibleIds.has(photo.id)));
   const reserved = candidates.filter(
     (photo) => photo.uploadIntentId && photo.uploadIntentExpiresAt && Date.parse(photo.uploadIntentExpiresAt) > nowMs,
   );
@@ -533,7 +536,7 @@ async function runBatch(
   }
 
   while (true) {
-    const photo = await store.claimNextPhoto(cameraPassId, claimId, now(), claimLeaseMs);
+    const photo = await store.claimNextPhoto(cameraPassId, claimId, now(), claimLeaseMs, eligibleIds);
     if (!photo) break;
     photoSyncChannel.publish({ type: "upload-started", cameraPassId, photoId: photo.id });
     const outcome = await processClaimedPhoto(photo, token, claimId, {

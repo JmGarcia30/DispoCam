@@ -12,6 +12,8 @@ interface SyncStatusBarProps {
   authenticationRequired?: boolean;
   onOpenAttention?: () => void;
   className?: string;
+  progress?: { current: number; total: number } | null;
+  queueFailure?: boolean;
 }
 
 export function SyncStatusBar({
@@ -19,10 +21,11 @@ export function SyncStatusBar({
   offline,
   waitingCount,
   attentionCount,
-  retryableCount = 0,
   authenticationRequired = false,
   onOpenAttention,
   className = "",
+  progress,
+  queueFailure = false,
 }: SyncStatusBarProps) {
   // Determine message and visual tone
   let label = "All photos saved";
@@ -40,12 +43,18 @@ export function SyncStatusBar({
       label = "Offline — photos save safely here";
     }
   } else if (state === "retrying") {
-    label = "Uploading photo…";
+    label = progress ? `Uploading ${progress.current} of ${progress.total}…` : "Uploading photo…";
   } else if (state === "uploading") {
-    label = waitingCount > 0 ? `Uploading ${waitingCount} ${waitingCount === 1 ? "photo" : "photos"}…` : "Syncing photos…";
+    label = "Uploading photo…";
+  } else if (queueFailure) {
+    label = "1 photo could not upload. It is still saved on this device.";
+    isActionable = true;
   } else if (state === "retry-scheduled") {
-    label = "Photo saved on this device. Try again when the connection improves.";
-    isActionable = retryableCount > 0;
+    label = waitingCount === 1 ? "1 photo ready to upload" : `${waitingCount} photos ready to upload`;
+    isActionable = waitingCount > 0;
+  } else if (waitingCount > 0) {
+    label = waitingCount === 1 ? "1 photo saved on this device" : `${waitingCount} photos saved on this device`;
+    isActionable = true;
   }
 
   const content = (
@@ -100,7 +109,7 @@ export function SyncStatusBar({
             fontWeight: 600,
           }}
         >
-          {state === "retry-scheduled" ? "Details" : "View"}
+          {queueFailure ? "Try Again" : state === "retry-scheduled" || (state === "idle" && waitingCount > 0) ? "Upload Saved Photos" : "View"}
         </span>
       )}
     </div>

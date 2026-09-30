@@ -132,6 +132,25 @@ export class OfflinePhotoStore {
     return photos.filter((photo) => photo.status !== "uploaded").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
+  /** Recovers interrupted foreground work without waiting for the old claim lease. */
+  async recoverUploadingPhotos(cameraPassId: string): Promise<number> {
+    const database = await this.getDatabase();
+    const transaction = database.transaction("photos", "readwrite");
+    const photos = await transaction.store.index("by-pass").getAll(cameraPassId);
+    const interrupted = photos.filter((photo) => photo.status === "uploading");
+    for (const photo of interrupted) {
+      await transaction.store.put({
+        ...photo,
+        status: "pending",
+        claimId: undefined,
+        claimExpiresAt: undefined,
+        nextRetryAt: undefined,
+      });
+    }
+    await transaction.done;
+    return interrupted.length;
+  }
+
   /** Development/admin helper: never touches records belonging to another pass. */
   async clearPhotosForPass(cameraPassId: string): Promise<number> {
     const database = await this.getDatabase();
@@ -147,6 +166,7 @@ export class OfflinePhotoStore {
     claimId: string,
     now: Date,
     leaseMs: number,
+    eligibleIds?: ReadonlySet<string>,
   ): Promise<OfflinePhoto | undefined> {
     const database = await this.getDatabase();
     const transaction = database.transaction("photos", "readwrite");
@@ -154,6 +174,7 @@ export class OfflinePhotoStore {
     const nowMs = now.getTime();
     const eligible = photos
       .filter((photo) => {
+        if (eligibleIds && !eligibleIds.has(photo.id)) return false;
         if (photo.status === "pending") return true;
         if (photo.status === "failed") {
           return photo.failureKind !== "attention" && (!photo.nextRetryAt || Date.parse(photo.nextRetryAt) <= nowMs);

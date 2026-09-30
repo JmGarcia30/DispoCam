@@ -100,7 +100,12 @@ describe("Guest-facing UI Components", () => {
           attentionCount={0}
         />,
       );
-      expect(html).toContain("Uploading 2 photos…");
+      expect(html).toContain("Uploading photo…");
+    });
+
+    it("shows one-at-a-time manual queue progress", () => {
+      const html = renderToStaticMarkup(<SyncStatusBar state="retrying" offline={false} waitingCount={3} attentionCount={0} progress={{ current: 2, total: 3 }} />);
+      expect(html).toContain("Uploading 2 of 3…");
     });
 
     it("renders calm offline status without alarming errors", () => {
@@ -130,8 +135,8 @@ describe("Guest-facing UI Components", () => {
     it("uses calm retry-scheduled and active retry messages", () => {
       const scheduled = renderToStaticMarkup(<SyncStatusBar state="retry-scheduled" offline={false} waitingCount={1} attentionCount={0} retryableCount={1} onOpenAttention={() => {}} />);
       const retrying = renderToStaticMarkup(<SyncStatusBar state="retrying" offline={false} waitingCount={1} attentionCount={0} />);
-      expect(scheduled).toContain("Photo saved on this device. Try again when the connection improves.");
-      expect(scheduled).toContain("Details");
+      expect(scheduled).toContain("1 photo ready to upload");
+      expect(scheduled).toContain("Upload Saved Photos");
       expect(retrying).toContain("Uploading photo…");
     });
 
@@ -165,7 +170,7 @@ describe("Guest-facing UI Components", () => {
           backendReachable
         />,
       );
-      expect(html).toContain("Your photo is safe. We&#x27;ll retry automatically.");
+      expect(html).toContain("Your photo is safe. Upload it when you&#x27;re ready.");
       expect(html).toContain("Stage: ");
       expect(html).toContain("cloudinary");
       expect(html).toContain("Method: ");

@@ -4,97 +4,101 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import { offlinePhotoStore } from "@/lib/offline/database";
 import { syncCameraPhotos, type SyncBatchResult } from "@/lib/offline/sync";
-import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { preparePhotosForManualRetry } from "@/lib/offline/manual-retry";
 import type { CameraPageMode } from "@/lib/offline/types";
 
 export type PhotoSyncUiState = "idle" | "checking-connection" | "uploading" | "retrying" | "waiting-for-connection" | "retry-scheduled" | "needs-attention";
-type RunKind = "automatic" | "retry";
 
 export function usePhotoSync(cameraPassId: string, cameraToken: string | null, pageMode: CameraPageMode) {
   const { check: checkNetwork, online: networkOnline } = useNetworkStatus();
   const [state, setState] = useState<PhotoSyncUiState>("idle");
   const [lastResult, setLastResult] = useState<SyncBatchResult | null>(null);
-  const retryTimer = useRef<number | undefined>(undefined);
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+  const [queueFailure, setQueueFailure] = useState(false);
   const activeRun = useRef<Promise<SyncBatchResult> | null>(null);
-  const runRef = useRef<((kind?: RunKind) => Promise<SyncBatchResult>) | undefined>(undefined);
 
   const applyResult = useCallback((result: SyncBatchResult) => {
     if (process.env.NODE_ENV !== "production" && result.diagnostic) console.warn("DispoCam sync diagnostic", result.diagnostic);
     setLastResult(result);
     if (result.status === "waiting-for-connection" || result.status === "token-unavailable") setState("waiting-for-connection");
-    else if (result.status === "retry-scheduled") setState("retry-scheduled");
     else if (result.status === "needs-attention") setState("needs-attention");
+    else if (result.remaining > 0) setState("retry-scheduled");
     else setState("idle");
-    if (retryTimer.current !== undefined) window.clearTimeout(retryTimer.current);
-    if (result.nextRetryAt) {
-      const delay = Math.max(0, Date.parse(result.nextRetryAt) - Date.now());
-      retryTimer.current = window.setTimeout(() => void runRef.current?.("retry"), delay);
-    } else if (result.status === "waiting-for-connection" && result.remaining > 0) {
-      retryTimer.current = window.setTimeout(() => void runRef.current?.("retry"), NETWORK_TIMEOUTS.reconnectRetryMs);
-    }
     return result;
   }, []);
 
-  const run = useCallback((kind: RunKind = "automatic") => {
-    if (activeRun.current) return activeRun.current;
-    const batch = (async () => {
-      setState("checking-connection");
-      if (!(await checkNetwork())) {
-        const outstanding = await offlinePhotoStore.getOutstandingPhotos(cameraPassId);
-        return applyResult({ status: "waiting-for-connection", uploaded: 0, retryScheduled: 0, needsAttention: 0, remaining: outstanding.length });
-      }
-      setState(kind === "retry" ? "retrying" : "uploading");
-      return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, { canReach: async () => true, pageMode }));
-    })().finally(() => { activeRun.current = null; });
-    activeRun.current = batch;
-    return batch;
+  const uploadOne = useCallback(async (photoId: string, manual: boolean) => {
+    setState("checking-connection");
+    if (!(await checkNetwork())) {
+      const outstanding = await offlinePhotoStore.getOutstandingPhotos(cameraPassId);
+      return applyResult({ status: "waiting-for-connection", uploaded: 0, retryScheduled: 0, needsAttention: 0, remaining: outstanding.length });
+    }
+    await preparePhotosForManualRetry(cameraPassId, photoId);
+    setState(manual ? "retrying" : "uploading");
+    return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, { canReach: async () => true, pageMode, photoIds: [photoId] }));
   }, [applyResult, cameraPassId, cameraToken, checkNetwork, pageMode]);
 
-  useEffect(() => { runRef.current = run; }, [run]);
+  const run = useCallback((photoId?: string) => {
+    if (activeRun.current) return activeRun.current;
+    const batch = (async () => {
+      setQueueFailure(false);
+      if (!photoId) {
+        const outstanding = await offlinePhotoStore.getOutstandingPhotos(cameraPassId);
+        return applyResult({ status: outstanding.length ? "retry-scheduled" : "complete", uploaded: 0, retryScheduled: outstanding.length, needsAttention: 0, remaining: outstanding.length });
+      }
+      return uploadOne(photoId, false);
+    })().finally(() => { activeRun.current = null; setProgress(null); });
+    activeRun.current = batch;
+    return batch;
+  }, [applyResult, cameraPassId, uploadOne]);
 
   const manualRetry = useCallback((photoId?: string) => {
     if (activeRun.current) return activeRun.current;
     const batch = (async () => {
-      setState("checking-connection");
-      if (!(await checkNetwork())) {
-        const outstanding = await offlinePhotoStore.getOutstandingPhotos(cameraPassId);
-        return applyResult({ status: "waiting-for-connection", uploaded: 0, retryScheduled: 0, needsAttention: 0, remaining: outstanding.length });
+      await offlinePhotoStore.recoverUploadingPhotos(cameraPassId);
+      const all = await offlinePhotoStore.getOutstandingPhotos(cameraPassId);
+      const queue = photoId ? all.filter((photo) => photo.id === photoId) : all;
+      if (!queue.length) return applyResult({ status: "complete", uploaded: 0, retryScheduled: 0, needsAttention: 0, remaining: 0 });
+      let uploaded = 0;
+      for (let index = 0; index < queue.length; index += 1) {
+        setProgress({ current: index + 1, total: queue.length });
+        const result = await uploadOne(queue[index].id, true);
+        uploaded += result.uploaded;
+        if (result.uploaded !== 1) {
+          setQueueFailure(true);
+          return { ...result, uploaded };
+        }
       }
-      await preparePhotosForManualRetry(cameraPassId, photoId);
-      setState("retrying");
-      return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, { canReach: async () => true, pageMode }));
-    })().finally(() => { activeRun.current = null; });
+      const remaining = (await offlinePhotoStore.getOutstandingPhotos(cameraPassId)).length;
+      return applyResult({ status: remaining ? "retry-scheduled" : "complete", uploaded, retryScheduled: remaining, needsAttention: 0, remaining });
+    })().finally(() => { activeRun.current = null; setProgress(null); });
     activeRun.current = batch;
     return batch;
-  }, [applyResult, cameraPassId, cameraToken, checkNetwork, pageMode]);
+  }, [applyResult, cameraPassId, uploadOne]);
 
-  const notifyPhotoCaptured = useCallback(() => { if (networkOnline) void run(); }, [networkOnline, run]);
-
-  useEffect(() => {
-    const trigger = window.setTimeout(() => void run(), 0);
-    return () => window.clearTimeout(trigger);
-  }, [run]);
-
-  useEffect(() => {
-    if (!networkOnline) return;
-    const trigger = window.setTimeout(() => void run(), 0);
-    return () => window.clearTimeout(trigger);
+  const notifyPhotoCaptured = useCallback((photoId: string) => {
+    if (networkOnline) void run(photoId);
   }, [networkOnline, run]);
 
   useEffect(() => {
-    const onVisibilityChange = () => { if (document.visibilityState === "visible") void run(); };
-    const onBackgroundSync = () => void run();
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("dispocam:background-sync", onBackgroundSync);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("dispocam:background-sync", onBackgroundSync);
-    };
-  }, [run]);
+    let active = true;
+    void offlinePhotoStore.recoverUploadingPhotos(cameraPassId).then(async () => {
+      if (!active) return;
+      const outstanding = await offlinePhotoStore.getOutstandingPhotos(cameraPassId);
+      if (active && outstanding.length) setState("retry-scheduled");
+    });
+    return () => { active = false; };
+  }, [cameraPassId]);
 
-  useEffect(() => () => { if (retryTimer.current !== undefined) window.clearTimeout(retryTimer.current); }, []);
+  useEffect(() => {
+    if (!networkOnline || activeRun.current) return;
+    let active = true;
+    void offlinePhotoStore.getOutstandingPhotos(cameraPassId).then((outstanding) => {
+      if (active && outstanding.length) setState("retry-scheduled");
+    });
+    return () => { active = false; };
+  }, [cameraPassId, networkOnline]);
 
   const syncing = state === "uploading" || state === "checking-connection" || state === "retrying";
-  return { state, syncing, reachable: networkOnline, lastResult, run, manualRetry, notifyPhotoCaptured };
+  return { state, syncing, reachable: networkOnline, lastResult, progress, queueFailure, run, manualRetry, notifyPhotoCaptured };
 }

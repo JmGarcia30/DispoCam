@@ -5,7 +5,6 @@ import type { CameraSession } from "@/lib/camera/capture";
 import { attachCamera, captureVideoFrame, captureWithTorch, openCamera } from "@/lib/camera/capture";
 import type { CameraPageMode, OfflineCameraSession } from "@/lib/offline/types";
 import { offlinePhotoStore } from "@/lib/offline/database";
-import { requestPhotoBackgroundSync } from "@/lib/pwa/service-worker";
 import { useOfflinePhotos } from "@/hooks/use-offline-photos";
 import { usePhotoSync } from "@/hooks/use-photo-sync";
 import { fetchWithTimeout } from "@/lib/network/fetch-timeout";
@@ -58,7 +57,7 @@ export function DisposableCamera({
   const sync = usePhotoSync(session.cameraPassId, token, pageMode);
   const refreshedResultRef = useRef(sync.lastResult);
 
-  const failedPhotos = photos.photos.filter((photo) => photo.failureKind === "attention" || photo.failureKind === "retryable");
+  const failedPhotos = photos.photos.filter((photo) => photo.status !== "uploaded");
   const attentionPhotos = failedPhotos.filter((photo) => photo.failureKind === "attention");
   const retryablePhotos = failedPhotos.filter((photo) => photo.failureKind === "retryable");
 
@@ -187,11 +186,10 @@ export function DisposableCamera({
       );
 
       // 4. Save to offline store
-      await photos.saveCapture(image, session.maxUploadBytes);
+      const saved = await photos.saveCapture(image, session.maxUploadBytes);
 
       // 5. Trigger background sync or foreground sync
-      await requestPhotoBackgroundSync().catch(() => "unsupported" as const);
-      sync.notifyPhotoCaptured();
+      sync.notifyPhotoCaptured(saved.id);
 
       // 6. Confirmation stamp
       setCapturedFeedback(true);
@@ -606,6 +604,8 @@ export function DisposableCamera({
           retryableCount={retryablePhotos.length}
           authenticationRequired={!token}
           onOpenAttention={() => setShowAttentionModal(true)}
+          progress={sync.progress}
+          queueFailure={sync.queueFailure}
         />
         {process.env.NODE_ENV !== "production" && (
           <button

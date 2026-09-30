@@ -89,6 +89,15 @@ describe("OfflinePhotoStore", () => {
     expect((await store.getPhotosForPass(PASS_ID))).toHaveLength(1);
   });
 
+  it("immediately recovers stale uploading claims without losing the photo", async () => {
+    const original = await store.storePhoto(input(crypto.randomUUID()));
+    await store.claimNextPhoto(PASS_ID, "old-run", new Date("2026-09-29T10:00:00.000Z"), 80 * 365 * 24 * 60 * 60_000);
+    expect(await store.recoverUploadingPhotos(PASS_ID)).toBe(1);
+    expect(await store.getPhoto(original.id)).toMatchObject({ id: original.id, status: "pending", image: expect.any(Blob) });
+    expect((await store.getPhoto(original.id))?.claimId).toBeUndefined();
+    expect((await store.getPhoto(original.id))?.nextRetryAt).toBeUndefined();
+  });
+
   it("clears local test photos only for the requested camera pass", async () => {
     await store.storePhoto(input(crypto.randomUUID()));
     await store.storePhoto(input(crypto.randomUUID()));

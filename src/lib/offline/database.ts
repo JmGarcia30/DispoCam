@@ -106,6 +106,10 @@ export class OfflinePhotoStore {
     return (await this.getDatabase()).get("photos", id);
   }
 
+  async deletePhoto(id: string): Promise<void> {
+    await (await this.getDatabase()).delete("photos", id);
+  }
+
   async saveCameraSession(session: OfflineCameraSession): Promise<void> {
     try {
       await (await this.getDatabase()).put("cameraSessions", session);

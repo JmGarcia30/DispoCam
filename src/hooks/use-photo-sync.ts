@@ -77,23 +77,8 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
   }, [applyResult, cameraPassId, uploadOne]);
 
   const notifyPhotoCaptured = useCallback((photoId: string) => {
-    // Always attempt the newly captured photo. The network state can briefly be
-    // "checking" or stale after Wi-Fi reconnects, so gating on networkOnline can
-    // incorrectly leave an online capture queued forever. run() performs the
-    // authoritative health check itself.
-    const start = async () => {
-      const active = activeRun.current;
-      if (active) {
-        try {
-          await active;
-        } catch {
-          // A previous failed run must not prevent the new capture from trying.
-        }
-      }
-      await run(photoId);
-    };
-    void start();
-  }, [run]);
+    return networkOnline ? run(photoId) : Promise.resolve<SyncBatchResult>({ status: "waiting-for-connection", uploaded: 0, retryScheduled: 0, needsAttention: 0, remaining: 1 });
+  }, [networkOnline, run]);
 
   useEffect(() => {
     let active = true;

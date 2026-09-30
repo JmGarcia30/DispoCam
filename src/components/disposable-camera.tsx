@@ -17,6 +17,7 @@ import { NeedsAttentionModal } from "@/components/needs-attention-modal";
 import { PwaInstallBanner } from "@/components/pwa-install-banner";
 import { ServiceWorkerUpdateBanner } from "@/components/service-worker-update-banner";
 import { CameraIcon, CheckIcon, FlashIcon, FlipCameraIcon } from "@/components/icons";
+import { canStartCountedCapture, shotsAfterRegistration, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
 
 interface DisposableCameraProps {
   token: string | null;
@@ -50,11 +51,13 @@ export function DisposableCamera({
   const [isShutterBlinking, setIsShutterBlinking] = useState(false);
   const [isFlashBursting, setIsFlashBursting] = useState(false);
   const [capturedFeedback, setCapturedFeedback] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [showAttentionModal, setShowAttentionModal] = useState(false);
 
   const network = useNetworkStatus();
   const photos = useOfflinePhotos(session.cameraPassId, session.serverRemainingShots);
   const sync = usePhotoSync(session.cameraPassId, token, pageMode);
+  const onlineCaptureRequired = wedding.requiresOnlineCapture;
   const refreshedResultRef = useRef(sync.lastResult);
 
   const failedPhotos = photos.photos.filter((photo) => photo.status !== "uploaded");
@@ -153,6 +156,10 @@ export function DisposableCamera({
   // Take photo action
   const handleShutter = useCallback(async () => {
     if (!videoRef.current || !photos.canCapture || saving) return;
+    if (onlineCaptureRequired && (!network.online || !(await network.check()))) {
+      setUploadNotice("Internet connection required. Connect to Wi-Fi or mobile data to take and upload photos.");
+      return;
+    }
 
     // 1. Shutter animation & optical flash burst
     setIsShutterBlinking(true);
@@ -188,22 +195,34 @@ export function DisposableCamera({
       // 4. Save to offline store
       const saved = await photos.saveCapture(image, session.maxUploadBytes);
 
-      // 5. Trigger background sync or foreground sync
-      sync.notifyPhotoCaptured(saved.id);
+      // 5. Online-only events wait for authoritative registration before counting the shot.
+      if (onlineCaptureRequired) {
+        const result = await sync.notifyPhotoCaptured(saved.id);
+        if (result.uploaded !== 1) {
+          await offlinePhotoStore.deletePhoto(saved.id);
+          await photos.refresh();
+          setUploadNotice("Photo wasn't uploaded. Your shot was not used. Please try again.");
+          return;
+        }
+        onSessionUpdated({ ...session, serverRemainingShots: shotsAfterRegistration(session.serverRemainingShots, true), resolvedAt: new Date().toISOString() });
+      } else {
+        void sync.notifyPhotoCaptured(saved.id);
+      }
 
       // 6. Confirmation stamp
       setCapturedFeedback(true);
       setTimeout(() => setCapturedFeedback(false), 1800);
       setCameraError(null);
+      setUploadNotice(null);
     } catch (error) {
       setCameraError(error instanceof Error ? error.message : "The photo could not be saved.");
     } finally {
       setSaving(false);
     }
-  }, [flashMode, hardwareTorchAvailable, photos, saving, session.maxUploadBytes, sync]);
+  }, [flashMode, hardwareTorchAvailable, network, onlineCaptureRequired, onSessionUpdated, photos, saving, session, sync]);
 
   // Shot count styling
-  const shotsLeft = photos.effectiveRemainingShots;
+  const shotsLeft = visibleShotsRemaining(onlineCaptureRequired, session.serverRemainingShots, photos.effectiveRemainingShots);
   let counterText = `${shotsLeft} SHOTS LEFT`;
   let isWarning = false;
 
@@ -554,7 +573,7 @@ export function DisposableCamera({
               <button
                 type="button"
                 className="shutter-button"
-                disabled={!photos.canCapture || saving || !cameraActive}
+                disabled={!canStartCountedCapture({ requiresOnlineCapture: onlineCaptureRequired, backendOnline: network.online, cameraReady: cameraActive, saving, hasShots: photos.canCapture })}
                 onClick={() => void handleShutter()}
                 aria-label={saving ? "Saving photo…" : `Take photo. ${counterText}.`}
               >
@@ -570,7 +589,7 @@ export function DisposableCamera({
                   fontWeight: 600,
                 }}
               >
-                {saving ? "SAVING…" : "SHUTTER"}
+                {saving ? "UPLOADING…" : onlineCaptureRequired && !network.online ? "WI-FI OR MOBILE DATA REQUIRED" : "SHUTTER"}
               </span>
             </div>
           ) : (
@@ -596,7 +615,13 @@ export function DisposableCamera({
           marginTop: "12px",
         }}
       >
-        <SyncStatusBar
+        {onlineCaptureRequired && (!network.online || uploadNotice) && (
+          <div role="status" style={{ maxWidth: "360px", textAlign: "center", color: "#F6C177", fontSize: "13px", lineHeight: 1.45 }}>
+            <strong>{network.online ? "Upload failed" : "Internet connection required"}</strong><br />
+            {uploadNotice ?? "Connect to Wi-Fi or mobile data to take and upload photos."}
+          </div>
+        )}
+        {!onlineCaptureRequired && <SyncStatusBar
           state={sync.state}
           offline={offline || network.offline}
           waitingCount={photos.localPendingShots}
@@ -606,7 +631,7 @@ export function DisposableCamera({
           onOpenAttention={() => setShowAttentionModal(true)}
           progress={sync.progress}
           queueFailure={sync.queueFailure}
-        />
+        />}
         {process.env.NODE_ENV !== "production" && (
           <button
             type="button"

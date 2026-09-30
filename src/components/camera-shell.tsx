@@ -20,10 +20,12 @@ interface PassApiResponse {
     pass_id: string;
     wedding_id: string;
     wedding_name: string;
+    event_date: string | null;
     guest_id: string;
     guest_name: string | null;
     shots_remaining: number;
     expires_at: string | null;
+    requires_online_capture: boolean;
   };
   capabilities: { maxUploadBytes: number };
 }
@@ -94,10 +96,12 @@ export function CameraShell({ pageMode }: { pageMode: CameraPageMode }) {
             cameraPassId: payload.data.pass_id,
             weddingId: payload.data.wedding_id,
             weddingName: payload.data.wedding_name,
+            eventDate: payload.data.event_date,
             guestId: payload.data.guest_id,
             guestName: payload.data.guest_name,
             serverRemainingShots: payload.data.shots_remaining,
             maxUploadBytes: payload.capabilities.maxUploadBytes,
+            requiresOnlineCapture: payload.data.requires_online_capture,
             expiresAt: payload.data.expires_at,
             resolvedAt: new Date().toISOString(),
           };

@@ -7,6 +7,7 @@ export interface CameraPassInfo {
   pass_id: string;
   wedding_id: string;
   wedding_name: string;
+  event_date: string | null;
   guest_id: string;
   guest_name: string | null;
   shot_limit: number;
@@ -14,6 +15,7 @@ export interface CameraPassInfo {
   shots_reserved: number;
   shots_remaining: number;
   expires_at: string | null;
+  requires_online_capture: boolean;
 }
 
 export interface UploadIntent {

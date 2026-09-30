@@ -12,6 +12,7 @@ export interface WeddingConfig {
   monogram: string;
   editionLabel: string;
   guestName?: string;
+  requiresOnlineCapture: boolean;
 }
 
 export const DEFAULT_WEDDING_CONFIG: WeddingConfig = {
@@ -25,6 +26,7 @@ export const DEFAULT_WEDDING_CONFIG: WeddingConfig = {
   cameraBodyColor: "#22211F",
   monogram: "P & A",
   editionLabel: "WEDDING CAMERA PASS",
+  requiresOnlineCapture: false,
 };
 
 /**
@@ -36,6 +38,9 @@ export function resolveWeddingConfig(
 ): WeddingConfig {
   let coupleNames = override?.coupleNames ?? DEFAULT_WEDDING_CONFIG.coupleNames;
   let monogram = override?.monogram ?? DEFAULT_WEDDING_CONFIG.monogram;
+  const eventDate = session?.eventDate
+    ? new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }).format(new Date(`${session.eventDate}T00:00:00Z`))
+    : undefined;
 
   if (
     session?.weddingName &&
@@ -60,6 +65,8 @@ export function resolveWeddingConfig(
     ...override,
     coupleNames,
     monogram,
+    weddingDate: override?.weddingDate ?? eventDate ?? DEFAULT_WEDDING_CONFIG.weddingDate,
     guestName: session?.guestName ?? override?.guestName,
+    requiresOnlineCapture: session?.requiresOnlineCapture ?? override?.requiresOnlineCapture ?? DEFAULT_WEDDING_CONFIG.requiresOnlineCapture,
   };
 }

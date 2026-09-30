@@ -3,10 +3,12 @@ import { z } from "zod";
 import { requireWeddingAdmin } from "@/lib/api/admin-auth";
 import { requireMutationRole } from "@/lib/api/admin-mutations";
 import { ApiError, errorResponse } from "@/lib/api/errors";
+import { productionOrigin as resolveProductionOrigin } from "@/lib/admin/production-origin";
 import { hashInviteToken } from "@/lib/api/wedding-join";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
+
 const settingsSchema = z.object({
   joinEnabled: z.boolean().optional(),
   defaultShotLimit: z.number().int().min(1).max(1000).optional(),
@@ -38,10 +40,13 @@ export async function POST(request: Request, context: { params: Promise<{ weddin
   try {
     const weddingId = z.uuid().parse((await context.params).weddingId);
     const admin = await requireWeddingAdmin(request, weddingId); requireMutationRole(admin.role);
+    const origin = resolveProductionOrigin(request.url, process.env.NEXT_PUBLIC_APP_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL, process.env.VERCEL_ENV);
     const token = randomBytes(32).toString("base64url");
     const { error } = await supabaseAdmin.from("weddings").update({ invite_token_hash: hashInviteToken(token), join_enabled: true }).eq("id", weddingId);
     if (error) throw error;
-    return Response.json({ data: { ...(await readSettings(weddingId)), inviteToken: token, joinPath: `/join/${token}` } }, { status: 201 });
+    const joinPath = `/join/${token}`;
+    const joinUrl = new URL(joinPath, origin).toString();
+    return Response.json({ data: { ...(await readSettings(weddingId)), inviteToken: token, joinPath, joinUrl } }, { status: 201 });
   } catch (error) { return errorResponse(error); }
 }
 

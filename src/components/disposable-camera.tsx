@@ -18,6 +18,7 @@ import { PwaInstallBanner } from "@/components/pwa-install-banner";
 import { ServiceWorkerUpdateBanner } from "@/components/service-worker-update-banner";
 import { CameraIcon, CheckIcon, FlashIcon, FlipCameraIcon } from "@/components/icons";
 import { canStartCountedCapture, shotsAfterRegistration, visibleShotsRemaining } from "@/lib/camera/online-capture-policy";
+import { CAMERA_FILTERS, DEFAULT_CAMERA_FILTER, getCameraFilterPreset, type CameraFilter } from "@/lib/camera/filters";
 
 interface DisposableCameraProps {
   token: string | null;
@@ -46,6 +47,7 @@ export function DisposableCamera({
   const [cameraActive, setCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [flashMode, setFlashMode] = useState<"auto" | "on" | "off">("auto");
+  const [selectedFilter, setSelectedFilter] = useState<CameraFilter>(DEFAULT_CAMERA_FILTER);
   const [hardwareTorchAvailable, setHardwareTorchAvailable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isShutterBlinking, setIsShutterBlinking] = useState(false);
@@ -184,7 +186,7 @@ export function DisposableCamera({
       const image = await captureWithTorch(
         cameraRef.current,
         flashMode !== "off",
-        () => captureVideoFrame(videoRef.current!),
+        () => captureVideoFrame(videoRef.current!, selectedFilter),
         120,
         () => {
           setIsFlashBursting(true);
@@ -219,7 +221,7 @@ export function DisposableCamera({
     } finally {
       setSaving(false);
     }
-  }, [flashMode, hardwareTorchAvailable, network, onlineCaptureRequired, onSessionUpdated, photos, saving, session, sync]);
+  }, [flashMode, hardwareTorchAvailable, network, onlineCaptureRequired, onSessionUpdated, photos, saving, selectedFilter, session, sync]);
 
   // Shot count styling
   const shotsLeft = visibleShotsRemaining(onlineCaptureRequired, session.serverRemainingShots, photos.effectiveRemainingShots);
@@ -428,6 +430,7 @@ export function DisposableCamera({
               height: "100%",
               objectFit: "cover",
               transform: facingMode === "user" ? "scaleX(-1)" : "none",
+              filter: getCameraFilterPreset(selectedFilter).preview,
               display: cameraActive ? "block" : "none",
             }}
           />
@@ -568,6 +571,31 @@ export function DisposableCamera({
             minHeight: "110px",
           }}
         >
+          <div role="group" aria-label="Photo filter" style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "6px", marginBottom: "10px" }}>
+            {CAMERA_FILTERS.map((filter) => {
+              const selected = selectedFilter === filter.id;
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => setSelectedFilter(filter.id)}
+                  style={{
+                    border: `1px solid ${selected ? "var(--wedding-accent)" : "rgba(255,255,255,.16)"}`,
+                    borderRadius: "999px",
+                    padding: "7px 10px",
+                    background: selected ? "var(--wedding-accent)" : "rgba(255,255,255,.06)",
+                    color: selected ? "#181715" : "#D8D4CC",
+                    fontSize: "11px",
+                    fontWeight: selected ? 700 : 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  {filter.label}
+                </button>
+              );
+            })}
+          </div>
           {shotsLeft > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
               <button

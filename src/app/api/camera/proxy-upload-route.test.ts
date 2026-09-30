@@ -106,12 +106,12 @@ describe("camera upload proxy route", () => {
     expect(registerVerifiedPhoto).not.toHaveBeenCalled();
   });
 
-  it("reconciles a lost direct response using the reserved asset without re-uploading", async () => {
+  it("reconciles a lost direct response after one reserved-asset upload attempt", async () => {
     arrangeIntent();
     readVerifiedCloudinaryImage.mockReset().mockResolvedValue(resource);
     const { POST } = await import("@/app/api/camera/[token]/uploads/proxy/route");
     expect((await POST(validRequest(), context)).status).toBe(201);
-    expect(uploadImageBuffer).not.toHaveBeenCalled();
+    expect(uploadImageBuffer).toHaveBeenCalledTimes(1);
     expect(registerVerifiedPhoto).toHaveBeenCalledTimes(1);
   });
 

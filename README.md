@@ -46,6 +46,7 @@ values
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Supabase anon/publishable key used only for admin Auth sessions |
+| `NEXT_PUBLIC_APP_URL` | Public | Canonical HTTPS production origin used for absolute event join URLs (Vercel production project URL is used when available) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only | Privileged RPC and Auth verification |
 | `CLOUDINARY_CLOUD_NAME` | Included in upload response | Cloudinary account |
 | `CLOUDINARY_API_KEY` | Included in upload response | Signed-upload identity |

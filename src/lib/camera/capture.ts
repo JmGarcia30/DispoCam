@@ -1,4 +1,5 @@
 import { CameraError, normalizeCameraError } from "@/lib/camera/errors";
+import { drawCameraFilter, type CameraFilter } from "@/lib/camera/filters";
 
 export interface CameraSession {
   stream: MediaStream;
@@ -57,7 +58,7 @@ export async function attachCamera(video: HTMLVideoElement, stream: MediaStream)
 }
 
 /** Captures the current video frame. The canvas re-encoding strips camera metadata. */
-export async function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
+export async function captureVideoFrame(video: HTMLVideoElement, filter: CameraFilter = "original"): Promise<Blob> {
   if (!video.videoWidth || !video.videoHeight) {
     throw new CameraError("capture-failed", "The camera is not ready to take a photo.");
   }
@@ -66,8 +67,25 @@ export async function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> 
   canvas.height = video.videoHeight;
   const context = canvas.getContext("2d");
   if (!context) throw new CameraError("capture-failed", "This browser cannot process the camera image.");
-  context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
+  let blob: Blob | null = null;
+  try {
+    drawCameraFilter(context, video, filter, canvas.width, canvas.height);
+    blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
+  } catch {
+    if (filter === "original") throw new CameraError("capture-failed", "The photo could not be captured.");
+  }
+  if (!blob && filter !== "original") {
+    try {
+      context.filter = "none";
+      context.globalCompositeOperation = "source-over";
+      context.globalAlpha = 1;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
+    } catch {
+      blob = null;
+    }
+  }
   if (!blob) throw new CameraError("capture-failed", "The photo could not be captured.");
   return blob;
 }

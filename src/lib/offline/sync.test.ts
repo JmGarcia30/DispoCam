@@ -440,7 +440,7 @@ describe("photo synchronization", () => {
     expect(NETWORK_TIMEOUTS.cloudinaryUploadMs).toBeGreaterThan(NETWORK_TIMEOUTS.uploadSignMs);
     expect(NETWORK_TIMEOUTS.cloudinaryUploadMs).toBeGreaterThan(NETWORK_TIMEOUTS.uploadRegisterMs);
     expect(timeoutForStage("cloudinary")).toBe(90_000);
-    expect(timeoutForStage("proxy")).toBe(25_000);
+    expect(timeoutForStage("proxy")).toBe(45_000);
     expect(timeoutForStage("sign")).toBe(25_000);
     const fetcher = vi.fn<typeof fetch>(() => new Promise((resolve) => setTimeout(() => resolve(cloudinary()), 31_000)));
 
@@ -483,7 +483,7 @@ describe("photo synchronization", () => {
     vi.useRealTimers();
   });
 
-  it("aborts a binary proxy request after 25 seconds", async () => {
+  it("aborts a binary proxy request after 45 seconds", async () => {
     vi.useFakeTimers();
     const originalTimeout = Object.getOwnPropertyDescriptor(AbortSignal, "timeout");
     Object.defineProperty(AbortSignal, "timeout", { configurable: true, value: undefined });
@@ -492,7 +492,7 @@ describe("photo synchronization", () => {
     }));
     const pending = requestJson(fetcher, "/api/camera/redacted/uploads/proxy", { method: "POST" }, "proxy");
     const rejection = expect(pending).rejects.toMatchObject({ stage: "proxy", status: 408, code: "request_timeout" });
-    await vi.advanceTimersByTimeAsync(24_999);
+    await vi.advanceTimersByTimeAsync(44_999);
     expect((fetcher.mock.calls[0][1]?.signal as AbortSignal).aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await rejection;

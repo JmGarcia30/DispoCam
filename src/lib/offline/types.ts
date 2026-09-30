@@ -47,6 +47,8 @@ export interface OfflineCameraSession {
   weddingName: string;
   guestId: string;
   guestName: string | null;
+  /** Explicitly identifies the built-in local-only preview; never inferred from API behavior. */
+  isDemo?: boolean;
   serverRemainingShots: number;
   maxUploadBytes: number;
   expiresAt: string | null;

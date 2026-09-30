@@ -10,6 +10,8 @@ import { WelcomeScreen } from "@/components/welcome-screen";
 import { DisposableCamera } from "@/components/disposable-camera";
 import { CameraIcon } from "@/components/icons";
 import { GuestNameStep, needsGuestName } from "@/components/guest-name-step";
+import { createDemoCameraSession } from "@/lib/camera/demo-session";
+import { saveGuestDisplayName } from "@/lib/camera/guest-name";
 
 interface PassApiResponse {
   data: {
@@ -126,20 +128,9 @@ export function CameraShell() {
 
   // Demo pass launcher for testing and previewing when no QR code was scanned
   const handleLaunchDemoPass = useCallback(async () => {
-    const demoSession: OfflineCameraSession = {
-      tokenFingerprint: "demo-wedding-fingerprint",
-      cameraPassId: "demo-pass-id-01",
-      weddingId: "demo-wedding-01",
-      weddingName: DEFAULT_WEDDING_CONFIG.coupleNames,
-      guestId: "demo-guest-01",
-      guestName: "Wedding Guest",
-      serverRemainingShots: 10,
-      maxUploadBytes: 10 * 1024 * 1024,
-      expiresAt: null,
-      resolvedAt: new Date().toISOString(),
-    };
+    const demoSession = createDemoCameraSession();
     await offlinePhotoStore.saveCameraSession(demoSession);
-    setResolved({ token: "demo-token", session: demoSession, offline: false });
+    setResolved({ token: null, session: demoSession, offline: true });
     setUnavailable(false);
   }, []);
 
@@ -282,20 +273,10 @@ export function CameraShell() {
     return (
       <GuestNameStep
         onContinue={async (displayName) => {
-          if (!resolved.token || resolved.offline) {
-            throw new Error("Connect to the internet to save your name before opening the camera.");
-          }
-          const response = await fetch(`/api/camera/${encodeURIComponent(resolved.token)}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ displayName }),
-          });
-          if (!response.ok) {
-            const payload = await response.json().catch(() => null);
-            throw new Error(payload?.error?.message ?? "Your name could not be saved.");
-          }
-          const updated = { ...resolved.session, guestName: displayName, resolvedAt: new Date().toISOString() };
-          await offlinePhotoStore.saveCameraSession(updated);
+          const updated = await saveGuestDisplayName(
+            { session: resolved.session, token: resolved.token, offline: resolved.offline, displayName },
+            { saveSession: (session) => offlinePhotoStore.saveCameraSession(session) },
+          );
           updateResolvedSession(updated);
         }}
       />

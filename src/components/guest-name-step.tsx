@@ -1,15 +1,9 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { normalizeDisplayName } from "@/lib/camera/guest-name";
 
-export function normalizeDisplayName(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed.length >= 2 && trimmed.length <= 120 ? trimmed : null;
-}
-
-export function needsGuestName(displayName: string | null | undefined): boolean {
-  return !displayName;
-}
+export { needsGuestName, normalizeDisplayName } from "@/lib/camera/guest-name";
 
 export function GuestNameStep({ onContinue }: { onContinue: (displayName: string) => Promise<void> }) {
   const [value, setValue] = useState("");

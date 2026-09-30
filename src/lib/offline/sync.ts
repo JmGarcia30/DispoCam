@@ -6,6 +6,8 @@ import { photoSyncChannel } from "@/lib/offline/channel";
 import { createBrowserUuid } from "@/lib/browser/uuid";
 import { FetchTimeoutError, fetchWithTimeout } from "@/lib/network/fetch-timeout";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
+import { preprocessImage, type ProcessedImage } from "@/lib/camera/preprocess";
+import { PROXY_IMAGE_JPEG_QUALITY, PROXY_IMAGE_MAX_BYTES, PROXY_IMAGE_MAX_DIMENSION } from "@/lib/network/proxy-upload";
 
 export { fetchWithTimeout } from "@/lib/network/fetch-timeout";
 
@@ -35,6 +37,7 @@ export interface SyncDiagnostic {
   code: string;
   message: string;
   method?: UploadMethod;
+  processedByteSize?: number;
 }
 
 export interface SyncDependencies {
@@ -49,7 +52,7 @@ export interface SyncDependencies {
 }
 
 interface ApiFailureBody {
-  error?: { code?: string; message?: string };
+  error?: { code?: string; message?: string; stage?: SyncFailureStage };
 }
 
 interface PassResponse {
@@ -81,7 +84,7 @@ interface CloudinaryResponse {
 
 export class SyncRequestError extends Error {
   constructor(
-    public readonly stage: "pass" | "sign" | "cloudinary" | "register",
+    public readonly stage: SyncFailureStage,
     public readonly status: number | undefined,
     public readonly code: string,
     message: string,
@@ -105,7 +108,7 @@ export function createClaimId(): string {
 }
 
 export function timeoutForStage(stage: SyncRequestError["stage"]): number {
-  if (stage === "cloudinary") return NETWORK_TIMEOUTS.cloudinaryUploadMs;
+  if (["cloudinary", "cloudinary-direct", "proxy", "cloudinary-server"].includes(stage)) return NETWORK_TIMEOUTS.cloudinaryUploadMs;
   if (stage === "sign") return NETWORK_TIMEOUTS.uploadSignMs;
   if (stage === "register") return NETWORK_TIMEOUTS.uploadRegisterMs;
   return NETWORK_TIMEOUTS.cameraPassMs;
@@ -142,7 +145,7 @@ export async function requestJson<T>(
       ? staleCloudinarySignature ? "Cloudinary upload authorization expired." : "Cloudinary upload failed."
       : message;
     throw new SyncRequestError(
-      stage,
+      body.error?.stage ?? stage,
       staleCloudinarySignature ? 408 : response.status,
       staleCloudinarySignature ? "cloudinary_signature_expired" : (body.error?.code ?? `${stage}_http_${response.status}`),
       safeMessage,
@@ -178,13 +181,13 @@ async function uploadToCloudinary(fetcher: typeof fetch, signed: Exclude<SignRes
   try {
     return await requestJson<CloudinaryResponse>(fetcher, signed.uploadUrl, { method: "POST", body: form }, "cloudinary", NETWORK_TIMEOUTS.cloudinaryUploadMs);
   } catch (error) {
-    if (error instanceof SyncRequestError) throw new SyncRequestError(error.stage, error.status, error.code, error.message, "direct");
+    if (error instanceof SyncRequestError) throw new SyncRequestError("cloudinary-direct", error.status, error.code, error.message, "direct");
     throw error;
   }
 }
 
 export function isDirectTransportFailure(error: unknown): error is SyncRequestError {
-  return error instanceof SyncRequestError && error.stage === "cloudinary" &&
+  return error instanceof SyncRequestError && error.stage === "cloudinary-direct" &&
     (error.code === "network_error" || error.code === "request_timeout");
 }
 
@@ -194,23 +197,37 @@ async function uploadThroughServer(
   photo: OfflinePhoto,
   intentId: string,
 ): Promise<void> {
+  const proxyImage = await createProxyUploadBlob(photo.image);
   const form = new FormData();
   form.set("clientUploadId", photo.id);
   form.set("intentId", intentId);
   form.set("capturedAt", photo.capturedAt);
-  form.set("image", photo.image, `${photo.id}.jpg`);
+  form.set("image", proxyImage, `${photo.id}.jpg`);
   try {
     await requestJson(
       fetcher,
       `/api/camera/${encodeURIComponent(token)}/uploads/proxy`,
       { method: "POST", body: form },
-      "cloudinary",
+      "proxy",
       NETWORK_TIMEOUTS.cloudinaryUploadMs,
     );
   } catch (error) {
     if (error instanceof SyncRequestError) throw new SyncRequestError(error.stage, error.status, error.code, error.message, "server-fallback");
     throw error;
   }
+}
+
+export async function createProxyUploadBlob(
+  image: Blob,
+  processor: (source: Blob, options: { maxDimension: number; quality: number; maxBytes: number }) => Promise<ProcessedImage> = preprocessImage,
+): Promise<Blob> {
+  if (image.size <= PROXY_IMAGE_MAX_BYTES) return image;
+  const processed = await processor(image, {
+    maxDimension: PROXY_IMAGE_MAX_DIMENSION,
+    quality: PROXY_IMAGE_JPEG_QUALITY,
+    maxBytes: PROXY_IMAGE_MAX_BYTES,
+  });
+  return processed.blob;
 }
 
 async function registerUpload(
@@ -252,6 +269,7 @@ async function processClaimedPhoto(
 ): Promise<"uploaded" | "retry" | "attention"> {
   const { store, fetch: fetcher, fallbackCanReach, now, random, claimLeaseMs } = dependencies;
   let photo = initialPhoto;
+  if (process.env.NODE_ENV !== "production") console.info("DispoCam upload diagnostic", { event: "upload_attempt", processedByteSize: photo.byteSize });
   const renew = (patch: Partial<OfflinePhoto> = {}) =>
     store.updateClaimedPhoto(photo.id, claimId, {
       ...patch,
@@ -344,6 +362,7 @@ async function processClaimedPhoto(
         failureStage: requestError?.stage,
         failureStatus: requestError?.status,
         failureMethod: requestError?.method,
+        processedByteSize: photo.byteSize,
         lastError: requestError?.message ?? "Upload temporarily failed. We'll keep trying.",
         nextRetryAt: new Date(now().getTime() + delay).toISOString(),
         claimId: undefined,
@@ -358,6 +377,8 @@ async function processClaimedPhoto(
       failureCode: requestError.code,
       failureStage: requestError.stage,
       failureStatus: requestError.status,
+      failureMethod: requestError.method,
+      processedByteSize: photo.byteSize,
       lastError: requestError.message,
       nextRetryAt: undefined,
       claimId: undefined,
@@ -474,7 +495,7 @@ async function runBatch(
     remaining: outstanding.length,
     nextRetryAt: retryDates[0],
     diagnostic: failed?.failureStage && failed.failureCode
-      ? { stage: failed.failureStage, status: failed.failureStatus, code: failed.failureCode, message: failed.lastError ?? "Upload failed.", method: failed.failureMethod }
+      ? { stage: failed.failureStage, status: failed.failureStatus, code: failed.failureCode, message: failed.lastError ?? "Upload failed.", method: failed.failureMethod, processedByteSize: failed.processedByteSize ?? failed.byteSize }
       : undefined,
   };
 }

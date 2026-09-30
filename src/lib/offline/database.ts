@@ -250,7 +250,7 @@ export class OfflinePhotoStore {
       ...photo,
       status: "pending",
       preferServerFallback: photo.preferServerFallback || (
-        photo.failureStage === "cloudinary" &&
+        (photo.failureStage === "cloudinary" || photo.failureStage === "cloudinary-direct") &&
         (photo.failureCode === "network_error" || photo.failureCode === "request_timeout")
       ),
       failureKind: undefined,

@@ -55,12 +55,12 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null) {
   const manualRetry = useCallback((photoId?: string) => {
     if (activeRun.current) return activeRun.current;
     const batch = (async () => {
-      await preparePhotosForManualRetry(cameraPassId, photoId);
       setState("checking-connection");
       if (!(await checkNetwork())) {
         const outstanding = await offlinePhotoStore.getOutstandingPhotos(cameraPassId);
         return applyResult({ status: "waiting-for-connection", uploaded: 0, retryScheduled: 0, needsAttention: 0, remaining: outstanding.length });
       }
+      await preparePhotosForManualRetry(cameraPassId, photoId);
       setState("retrying");
       return applyResult(await syncCameraPhotos(cameraPassId, cameraToken, { canReach: async () => true }));
     })().finally(() => { activeRun.current = null; });

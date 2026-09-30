@@ -1,7 +1,8 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OfflinePhotoStore } from "@/lib/offline/database";
-import { fetchWithTimeout, isDirectTransportFailure, isRetryableStatus, requestJson, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
+import { createProxyUploadBlob, fetchWithTimeout, isDirectTransportFailure, isRetryableStatus, requestJson, SyncRequestError, syncCameraPhotos, timeoutForStage } from "@/lib/offline/sync";
+import { PROXY_IMAGE_MAX_BYTES, VERCEL_FUNCTION_BODY_LIMIT_BYTES } from "@/lib/network/proxy-upload";
 import { NETWORK_TIMEOUTS } from "@/lib/network/timeouts";
 import { preparePhotosForManualRetry } from "@/lib/offline/manual-retry";
 
@@ -118,11 +119,23 @@ describe("photo synchronization", () => {
     const proxyCall = fetcher.mock.calls.find(([url]) => String(url).endsWith("/uploads/proxy"));
     expect(proxyCall).toBeDefined();
     const body = proxyCall![1]?.body as FormData;
+    expect(new Headers(proxyCall![1]?.headers).has("Content-Type")).toBe(false);
     expect(body.get("clientUploadId")).toBe(PHOTO_ID);
     expect(body.get("intentId")).toBe(INTENT_ID);
     expect(body.get("image")).toBeInstanceOf(Blob);
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/register"))).toBe(false);
     expect(await store.getPhoto(PHOTO_ID)).toBeUndefined();
+  });
+
+  it("creates a fallback-only derivative under the verified proxy threshold", async () => {
+    expect(PROXY_IMAGE_MAX_BYTES).toBeLessThan(VERCEL_FUNCTION_BODY_LIMIT_BYTES);
+    const original = new Blob([new Uint8Array(PROXY_IMAGE_MAX_BYTES + 1)], { type: "image/jpeg" });
+    const derivative = new Blob([new Uint8Array(250_000)], { type: "image/jpeg" });
+    const processor = vi.fn().mockResolvedValue({ blob: derivative, width: 1600, height: 1200, originalBytes: original.size });
+    const result = await createProxyUploadBlob(original, processor);
+    expect(result).toBe(derivative);
+    expect(processor).toHaveBeenCalledWith(original, { maxDimension: 2048, quality: 0.76, maxBytes: PROXY_IMAGE_MAX_BYTES });
+    expect(original.size).toBe(PROXY_IMAGE_MAX_BYTES + 1);
   });
 
   it("classifies a direct Cloudinary timeout for server fallback", async () => {
@@ -135,7 +148,8 @@ describe("photo synchronization", () => {
     void pending.catch((error) => { failure = error; });
     await vi.advanceTimersByTimeAsync(1_000);
     await expect(pending).rejects.toMatchObject({ stage: "cloudinary", status: 408, code: "request_timeout" });
-    expect(isDirectTransportFailure(failure)).toBe(true);
+    expect(failure).toBeInstanceOf(SyncRequestError);
+    expect(isDirectTransportFailure(new SyncRequestError("cloudinary-direct", 408, "request_timeout", "Timed out", "direct"))).toBe(true);
   });
 
   it("keeps the local Blob and fallback preference when direct and proxy transports fail", async () => {
@@ -143,21 +157,49 @@ describe("photo synchronization", () => {
       .mockResolvedValueOnce(pass())
       .mockResolvedValueOnce(signed())
       .mockRejectedValueOnce(new TypeError("Load failed"))
-      .mockResolvedValueOnce(json({ error: { code: "proxy_upload_failed", message: "The server upload failed temporarily." } }, 502));
+      .mockResolvedValueOnce(json({ error: { code: "proxy_upload_failed", message: "The server upload failed temporarily.", stage: "cloudinary-server" } }, 502));
 
     const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
     expect(result).toMatchObject({
       status: "retry-scheduled",
-      diagnostic: { stage: "cloudinary", method: "server-fallback", status: 502, code: "proxy_upload_failed" },
+      diagnostic: { stage: "cloudinary-server", method: "server-fallback", status: 502, code: "proxy_upload_failed" },
     });
     expect(await store.getPhoto(PHOTO_ID)).toMatchObject({
       id: PHOTO_ID,
       image: expect.any(Blob),
       failureKind: "retryable",
-      failureStage: "cloudinary",
+      failureStage: "cloudinary-server",
       failureMethod: "server-fallback",
       preferServerFallback: true,
     });
+  });
+
+  it("reports browser-to-proxy transport failure as proxy network_error", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockRejectedValueOnce(new TypeError("Cloudinary load failed"))
+      .mockRejectedValueOnce(new TypeError("Proxy load failed"));
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
+    expect(result).toMatchObject({
+      status: "retry-scheduled",
+      diagnostic: { stage: "proxy", method: "server-fallback", code: "network_error" },
+    });
+    expect((await store.getPhoto(PHOTO_ID))?.image).toBeInstanceOf(Blob);
+  });
+
+  it("preserves a proxy 413 response instead of converting it to network_error", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(pass())
+      .mockResolvedValueOnce(signed())
+      .mockRejectedValueOnce(new TypeError("Cloudinary load failed"))
+      .mockResolvedValueOnce(json({ error: { code: "proxy_payload_too_large", message: "The fallback upload exceeds the proxy size limit." } }, 413));
+    const result = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
+    expect(result).toMatchObject({
+      status: "needs-attention",
+      diagnostic: { stage: "proxy", method: "server-fallback", status: 413, code: "proxy_payload_too_large" },
+    });
+    expect((await store.getPhoto(PHOTO_ID))?.image).toBeInstanceOf(Blob);
   });
 
   it("does not call the proxy when backend reachability fails after a direct transport error", async () => {
@@ -171,7 +213,7 @@ describe("photo synchronization", () => {
     });
     expect(result).toMatchObject({
       status: "retry-scheduled",
-      diagnostic: { stage: "cloudinary", method: "direct", code: "network_error" },
+      diagnostic: { stage: "cloudinary-direct", method: "direct", code: "network_error" },
     });
     expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/uploads/proxy"))).toBe(false);
     const stored = await store.getPhoto(PHOTO_ID);
@@ -415,12 +457,12 @@ describe("photo synchronization", () => {
     const failedResult = await syncCameraPhotos(PASS_ID, TOKEN, options(fetcher));
     expect(failedResult).toMatchObject({
       status: "retry-scheduled",
-      diagnostic: { stage: "cloudinary", status: 408, code: "cloudinary_signature_expired" },
+      diagnostic: { stage: "cloudinary-direct", status: 408, code: "cloudinary_signature_expired" },
     });
     expect(await store.getPhoto(PHOTO_ID)).toMatchObject({
       id: PHOTO_ID,
       failureKind: "retryable",
-      failureStage: "cloudinary",
+      failureStage: "cloudinary-direct",
       failureCode: "cloudinary_signature_expired",
     });
 
@@ -459,7 +501,7 @@ describe("photo synchronization", () => {
       .mockResolvedValueOnce(json({ error: { message: "temporary" } }, 503));
     await syncCameraPhotos(PASS_ID, TOKEN, options(firstAttempt));
     const failed = await store.getPhoto(PHOTO_ID);
-    expect(failed).toMatchObject({ failureKind: "retryable", failureStage: "cloudinary" });
+    expect(failed).toMatchObject({ failureKind: "retryable", failureStage: "cloudinary-direct" });
     expect(Date.parse(failed!.nextRetryAt!)).toBeGreaterThan(nowMs);
 
     await preparePhotosForManualRetry(PASS_ID, undefined, store);

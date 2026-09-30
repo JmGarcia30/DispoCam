@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/errors";
+import { PROXY_IMAGE_MAX_BYTES } from "@/lib/network/proxy-upload";
 
 const getCameraPass = vi.fn();
 const uploadImageBuffer = vi.fn();
@@ -11,7 +12,7 @@ vi.mock("@/lib/api/camera", () => ({ getCameraPass }));
 vi.mock("@/lib/cloudinary", () => ({ uploadImageBuffer }));
 vi.mock("@/lib/api/upload-registration", () => ({ readVerifiedCloudinaryImage, registerVerifiedPhoto }));
 vi.mock("@/lib/supabase/admin", () => ({ supabaseAdmin: { from } }));
-vi.mock("@/lib/env", () => ({ env: { MAX_UPLOAD_BYTES: 1000 } }));
+vi.mock("@/lib/env", () => ({ env: { MAX_UPLOAD_BYTES: 15 * 1024 * 1024 } }));
 
 const TOKEN = "x".repeat(32);
 const PASS_ID = "11111111-1111-4111-8111-111111111111";
@@ -73,6 +74,15 @@ describe("camera upload proxy route", () => {
     expect(registerVerifiedPhoto).toHaveBeenCalledWith(expect.objectContaining({ token: TOKEN, intentId: INTENT_ID, clientUploadId: PHOTO_ID, publicId: PUBLIC_ID }));
   });
 
+  it("accepts a small 150 KB JPEG through the real multipart parser", async () => {
+    arrangeIntent();
+    const bytes = new Uint8Array(150_000);
+    bytes.set([0xff, 0xd8, 0xff]);
+    const { POST } = await import("@/app/api/camera/[token]/uploads/proxy/route");
+    const response = await POST(validRequest(new Blob([bytes], { type: "image/jpeg" })), context);
+    expect(response.status).toBe(201);
+  });
+
   it("reconciles an existing photo without uploading or incrementing again", async () => {
     from.mockReturnValueOnce(query({ data: { id: "existing", client_upload_id: PHOTO_ID }, error: null }));
     const { POST } = await import("@/app/api/camera/[token]/uploads/proxy/route");
@@ -110,7 +120,9 @@ describe("camera upload proxy route", () => {
   it("rejects oversized and invalid images", async () => {
     arrangeIntent();
     const { POST } = await import("@/app/api/camera/[token]/uploads/proxy/route");
-    const oversized = await POST(validRequest(new Blob([new Uint8Array(1001).fill(1)], { type: "image/jpeg" })), context);
+    const oversizedBytes = new Uint8Array(PROXY_IMAGE_MAX_BYTES + 1);
+    oversizedBytes.set([0xff, 0xd8, 0xff]);
+    const oversized = await POST(validRequest(new Blob([oversizedBytes], { type: "image/jpeg" })), context);
     expect(oversized.status).toBe(413);
     expect(uploadImageBuffer).not.toHaveBeenCalled();
 

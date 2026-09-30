@@ -5,6 +5,7 @@ import { readVerifiedCloudinaryImage, registerVerifiedPhoto } from "@/lib/api/up
 import { uploadImageBuffer } from "@/lib/cloudinary";
 import { env } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { PROXY_IMAGE_MAX_BYTES, VERCEL_FUNCTION_BODY_LIMIT_BYTES } from "@/lib/network/proxy-upload";
 
 export const runtime = "nodejs";
 
@@ -26,8 +27,9 @@ export async function POST(request: Request, context: { params: Promise<{ token:
   let clientUploadId: string | undefined;
   let intentId: string | undefined;
   try {
+    console.info({ route: "camera-upload-proxy", event: "request_received" });
     const contentLength = Number(request.headers.get("content-length") ?? 0);
-    if (contentLength > env.MAX_UPLOAD_BYTES + 1_000_000) throw new ApiError(413, "upload_too_large", "The uploaded image exceeds the size limit.");
+    if (contentLength > VERCEL_FUNCTION_BODY_LIMIT_BYTES) throw new ApiError(413, "proxy_payload_too_large", "The fallback upload exceeds the proxy size limit.");
 
     const { token } = await context.params;
     const pass = await getCameraPass(token);
@@ -61,7 +63,10 @@ export async function POST(request: Request, context: { params: Promise<{ token:
 
     const image = form.get("image");
     if (!(image instanceof Blob)) throw new ApiError(400, "image_required", "An image file is required.");
-    if (image.size <= 0 || image.size > env.MAX_UPLOAD_BYTES) throw new ApiError(413, "upload_too_large", "The uploaded image exceeds the size limit.");
+    console.info({ route: "camera-upload-proxy", event: "multipart_parsed", byteSize: image.size });
+    if (image.size <= 0 || image.size > Math.min(env.MAX_UPLOAD_BYTES, PROXY_IMAGE_MAX_BYTES)) {
+      throw new ApiError(413, "proxy_payload_too_large", "The fallback upload exceeds the proxy size limit.");
+    }
     const bytes = new Uint8Array(await image.arrayBuffer());
     if (!image.type.startsWith("image/") || !isSupportedImage(bytes)) throw new ApiError(415, "invalid_image", "The uploaded file is not a supported image.");
 
@@ -70,7 +75,9 @@ export async function POST(request: Request, context: { params: Promise<{ token:
       resource = await readVerifiedCloudinaryImage(intent.cloudinary_public_id);
     } catch {
       try {
+        console.info({ route: "camera-upload-proxy", event: "cloudinary_upload_started" });
         await uploadImageBuffer(Buffer.from(bytes), intent.cloudinary_public_id, `intent_id=${intent.id}|client_upload_id=${fields.clientUploadId}`);
+        console.info({ route: "camera-upload-proxy", event: "cloudinary_upload_completed" });
       } catch {
         // A lost direct response or racing proxy may have created the exact reserved asset.
       }
@@ -89,10 +96,14 @@ export async function POST(request: Request, context: { params: Promise<{ token:
       capturedAt: fields.capturedAt,
       resource,
     });
+    console.info({ route: "camera-upload-proxy", event: "registration_completed" });
     return Response.json({ data: photo }, { status: 201 });
   } catch (error) {
     const details = safeApiErrorDetails(error);
     if (details.status >= 500) console.error({ event: "camera_upload_error", route: "proxy", stage: "cloudinary", ...details, clientUploadId, intentId });
+    if (error instanceof ApiError && error.code === "proxy_upload_failed") {
+      return Response.json({ error: { code: error.code, message: error.message, stage: "cloudinary-server" } }, { status: error.status });
+    }
     return errorResponse(error);
   }
 }

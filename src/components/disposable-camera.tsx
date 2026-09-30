@@ -158,9 +158,12 @@ export function DisposableCamera({
   // Take photo action
   const handleShutter = useCallback(async () => {
     if (!videoRef.current || !photos.canCapture || saving) return;
-    if (onlineCaptureRequired && (!network.online || !(await network.check()))) {
-      setUploadNotice("Internet connection required. Connect to Wi-Fi or mobile data to take and upload photos.");
-      return;
+    if (onlineCaptureRequired) {
+      const backendReachable = await network.check();
+      if (!backendReachable) {
+        setUploadNotice("Internet connection required. Connect to Wi-Fi or mobile data to take and upload photos.");
+        return;
+      }
     }
 
     // 1. Shutter animation & optical flash burst
@@ -601,7 +604,7 @@ export function DisposableCamera({
               <button
                 type="button"
                 className="shutter-button"
-                disabled={!canStartCountedCapture({ requiresOnlineCapture: onlineCaptureRequired, backendOnline: network.online, cameraReady: cameraActive, saving, hasShots: photos.canCapture })}
+                disabled={!canStartCountedCapture({ requiresOnlineCapture: onlineCaptureRequired, backendOnline: !network.offline, cameraReady: cameraActive, saving, hasShots: photos.canCapture })}
                 onClick={() => void handleShutter()}
                 aria-label={saving ? "Saving photo…" : `Take photo. ${counterText}.`}
               >
@@ -617,7 +620,7 @@ export function DisposableCamera({
                   fontWeight: 600,
                 }}
               >
-                {saving ? "UPLOADING…" : onlineCaptureRequired && !network.online ? "WI-FI OR MOBILE DATA REQUIRED" : "SHUTTER"}
+                {saving ? "UPLOADING…" : onlineCaptureRequired && network.offline ? "WI-FI OR MOBILE DATA REQUIRED" : "SHUTTER"}
               </span>
             </div>
           ) : (
@@ -643,7 +646,7 @@ export function DisposableCamera({
           marginTop: "12px",
         }}
       >
-        {onlineCaptureRequired && (!network.online || uploadNotice) && (
+        {onlineCaptureRequired && (network.offline || uploadNotice) && (
           <div role="status" style={{ maxWidth: "360px", textAlign: "center", color: "#F6C177", fontSize: "13px", lineHeight: 1.45 }}>
             <strong>{network.online ? "Upload failed" : "Internet connection required"}</strong><br />
             {uploadNotice ?? "Connect to Wi-Fi or mobile data to take and upload photos."}

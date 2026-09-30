@@ -76,9 +76,7 @@ export function usePhotoSync(cameraPassId: string, cameraToken: string | null, p
     return batch;
   }, [applyResult, cameraPassId, uploadOne]);
 
-  const notifyPhotoCaptured = useCallback((photoId: string) => {
-    return networkOnline ? run(photoId) : Promise.resolve<SyncBatchResult>({ status: "waiting-for-connection", uploaded: 0, retryScheduled: 0, needsAttention: 0, remaining: 1 });
-  }, [networkOnline, run]);
+  const notifyPhotoCaptured = useCallback((photoId: string) => run(photoId), [run]);
 
   useEffect(() => {
     let active = true;

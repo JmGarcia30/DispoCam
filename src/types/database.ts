@@ -67,6 +67,18 @@ export interface Database {
         Args: { p_wedding_id: string; p_camera_pass_id: string; p_full_reset: boolean };
         Returns: string[];
       };
+      admin_set_camera_pass_limit: {
+        Args: { p_wedding_id: string; p_camera_pass_id: string; p_shot_limit: number };
+        Returns: Array<{ id: string; shot_limit: number; shots_used: number; is_active: boolean }>;
+      };
+      admin_grant_camera_pass_shots: {
+        Args: { p_wedding_id: string; p_camera_pass_id: string; p_extra_shots: number };
+        Returns: Array<{ id: string; shot_limit: number; shots_used: number; is_active: boolean }>;
+      };
+      admin_set_camera_pass_active: {
+        Args: { p_wedding_id: string; p_camera_pass_id: string; p_is_active: boolean };
+        Returns: Array<{ id: string; shot_limit: number; shots_used: number; is_active: boolean }>;
+      };
     };
   };
 }

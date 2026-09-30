@@ -45,6 +45,7 @@ values
 | Variable | Exposure | Purpose |
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Supabase anon/publishable key used only for admin Auth sessions |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only | Privileged RPC and Auth verification |
 | `CLOUDINARY_CLOUD_NAME` | Included in upload response | Cloudinary account |
 | `CLOUDINARY_API_KEY` | Included in upload response | Signed-upload identity |
@@ -69,6 +70,9 @@ Generate and persist one UUID for each captured image before its first network a
 ### Admin
 
 - `GET /api/admin/weddings/:weddingId/photos?limit=50&cursor=ISO_DATE&status=pending` returns a cursor-paginated gallery. It requires `Authorization: Bearer <Supabase access token>` and an `admins` membership for the wedding.
+- `/admin/login` signs existing Supabase Auth users in with email/password. `/admin` lists only assigned weddings and redirects single-wedding admins to their dashboard.
+- `GET /api/admin/weddings` lists the authenticated user's memberships. Dashboard, guest, photo download, and pass-management routes verify membership again on every request.
+- `PATCH /api/admin/weddings/:weddingId/camera-passes/:cameraPassId` grants shots, sets a valid shot limit, or activates/deactivates a pass. Only owners and editors may mutate passes.
 - `PATCH /api/admin/weddings/:weddingId/guests/:guestId` edits a guest display name (owner/editor only).
 - `POST /api/admin/weddings/:weddingId/camera-passes/:cameraPassId/test-reset` is an owner/editor-only test operation. Send `mode: "shot_count"` or `mode: "full"`, the exact `confirmation: "RESET TEST CAMERA PASS"`, and optionally `deleteCloudinaryAssets: true` for a full reset. A server reset never clears device queues; in development, the camera footer exposes a pass-scoped local cleanup button. For real guests, grant extra shots instead of using test reset.
 

@@ -17,6 +17,8 @@ const dbCodes: Record<string, [number, string, string]> = {
   UPLOAD_INTENT_MISMATCH: [409, "upload_intent_mismatch", "Upload details do not match the intent."],
   INVALID_GUEST_NAME: [400, "invalid_guest_name", "Display name must be between 2 and 120 characters."],
   GUEST_NAME_ALREADY_SET: [409, "guest_name_already_set", "This guest already has a display name."],
+  INVALID_SHOT_LIMIT: [400, "invalid_shot_limit", "Shot limit must be between shots used and 1000."],
+  INVALID_SHOT_GRANT: [400, "invalid_shot_grant", "Extra shots must be between 1 and 1000."],
 };
 
 export function fromDatabaseError(error: { message: string; code?: string }): ApiError {

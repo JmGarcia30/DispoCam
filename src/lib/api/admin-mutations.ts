@@ -49,3 +49,41 @@ export async function updateGuestDisplayName(weddingId: string, guestId: string,
   if (!data) throw new ApiError(404, "guest_not_found", "Guest not found.");
   return data;
 }
+
+export async function updateCameraPass(input: {
+  weddingId: string;
+  cameraPassId: string;
+  grantShots?: number;
+  shotLimit?: number;
+  isActive?: boolean;
+}) {
+  let result: unknown;
+  if (input.grantShots !== undefined) {
+    const response = await supabaseAdmin.rpc("admin_grant_camera_pass_shots" as never, {
+      p_wedding_id: input.weddingId,
+      p_camera_pass_id: input.cameraPassId,
+      p_extra_shots: input.grantShots,
+    } as never);
+    if (response.error) throw fromDatabaseError(response.error);
+    result = response.data;
+  } else if (input.shotLimit !== undefined) {
+    const response = await supabaseAdmin.rpc("admin_set_camera_pass_limit" as never, {
+      p_wedding_id: input.weddingId,
+      p_camera_pass_id: input.cameraPassId,
+      p_shot_limit: input.shotLimit,
+    } as never);
+    if (response.error) throw fromDatabaseError(response.error);
+    result = response.data;
+  } else if (input.isActive !== undefined) {
+    const response = await supabaseAdmin.rpc("admin_set_camera_pass_active" as never, {
+      p_wedding_id: input.weddingId,
+      p_camera_pass_id: input.cameraPassId,
+      p_is_active: input.isActive,
+    } as never);
+    if (response.error) throw fromDatabaseError(response.error);
+    result = response.data;
+  }
+  const row = Array.isArray(result) ? result[0] : undefined;
+  if (!row) throw new ApiError(404, "camera_pass_not_found", "Camera pass not found.");
+  return row;
+}

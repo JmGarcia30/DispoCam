@@ -16,3 +16,11 @@ export async function requireWeddingAdmin(request: Request, weddingId: string) {
   if (!admin) throw new ApiError(403, "forbidden", "You do not have access to this wedding.");
   return { user: data.user, role: admin.role };
 }
+
+export async function requireAuthenticatedAdmin(request: Request) {
+  const token = readBearerToken(request);
+  if (!token) throw new ApiError(401, "unauthorized", "A Supabase access token is required.");
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !data.user) throw new ApiError(401, "unauthorized", "The access token is invalid.");
+  return data.user;
+}

@@ -87,3 +87,45 @@ export async function updateCameraPass(input: {
   if (!row) throw new ApiError(404, "camera_pass_not_found", "Camera pass not found.");
   return row;
 }
+
+export async function cleanupEventTestData(input: {
+  weddingId: string;
+  mode: "clear_photos" | "clear_guests" | "full_reset";
+  deleteCloudinaryAssets: boolean;
+}) {
+  const { data, error } = await supabaseAdmin.rpc("admin_cleanup_event_data" as never, {
+    p_wedding_id: input.weddingId,
+    p_mode: input.mode,
+  } as never);
+  if (error) throw fromDatabaseError(error);
+
+  const row = (data as Array<{
+    photos_removed: number;
+    guests_removed: number;
+    passes_removed: number;
+    public_ids: string[];
+  }> | null)?.[0];
+
+  const publicIds = row?.public_ids ?? [];
+  const assetDeletionFailures: string[] = [];
+
+  if (input.deleteCloudinaryAssets && publicIds.length > 0) {
+    for (const publicId of publicIds) {
+      try {
+        await cloudinary.uploader.destroy(publicId, { resource_type: "image", invalidate: true });
+      } catch {
+        assetDeletionFailures.push(publicId);
+      }
+    }
+  }
+
+  return {
+    mode: input.mode,
+    photosRemoved: row?.photos_removed ?? 0,
+    guestsRemoved: row?.guests_removed ?? 0,
+    passesRemoved: row?.passes_removed ?? 0,
+    cloudinaryDeleted: input.deleteCloudinaryAssets,
+    assetDeletionFailures,
+  };
+}
+

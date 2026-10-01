@@ -103,4 +103,41 @@ describe("camera photo filters", () => {
     expect(shotCount).toBe(10);
     expect(context.drawImage).toHaveBeenCalledTimes(1);
   });
+
+  it("applies center-crop sourceRect when zoom is 1.5x or 2x", async () => {
+    const { context } = stubCanvas();
+    const video = { videoWidth: 600, videoHeight: 400 } as HTMLVideoElement;
+
+    // 1.5x zoom on 600x400:
+    // sWidth = 600 / 1.5 = 400, sHeight = 400 / 1.5 = 266.666...
+    // sx = (600 - 400) / 2 = 100, sy = (400 - 266.666...) / 2 = 66.666...
+    await captureVideoFrame(video, "original", 1.5);
+    expect(context.drawImage).toHaveBeenLastCalledWith(
+      video,
+      100,
+      expect.closeTo(66.67, 1),
+      400,
+      expect.closeTo(266.67, 1),
+      0,
+      0,
+      600,
+      400,
+    );
+
+    // 2x zoom on 600x400:
+    // sWidth = 300, sHeight = 200, sx = 150, sy = 100
+    await captureVideoFrame(video, "original", 2);
+    expect(context.drawImage).toHaveBeenLastCalledWith(
+      video,
+      150,
+      100,
+      300,
+      200,
+      0,
+      0,
+      600,
+      400,
+    );
+  });
 });
+

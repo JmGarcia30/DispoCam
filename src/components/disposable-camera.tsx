@@ -57,6 +57,7 @@ export function DisposableCamera({
   const [cameraActive, setCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [flashMode, setFlashMode] = useState<"auto" | "on" | "off">("auto");
+  const [zoomLevel, setZoomLevel] = useState<1 | 1.5 | 2>(1);
   const [selectedFilter, setSelectedFilter] = useState<CameraFilter>(DEFAULT_CAMERA_FILTER);
   const [hardwareTorchAvailable, setHardwareTorchAvailable] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -178,7 +179,7 @@ export function DisposableCamera({
       const image = await captureWithTorch(
         cameraRef.current,
         flashMode !== "off",
-        () => captureVideoFrame(videoRef.current!, selectedFilter),
+        () => captureVideoFrame(videoRef.current!, selectedFilter, zoomLevel),
         120,
         () => {
           setIsFlashBursting(true);
@@ -220,7 +221,7 @@ export function DisposableCamera({
     } finally {
       setSaving(false);
     }
-  }, [flashMode, hardwareTorchAvailable, network, onlineCaptureRequired, onSessionUpdated, photos, saving, selectedFilter, session, sync]);
+  }, [flashMode, hardwareTorchAvailable, network, onlineCaptureRequired, onSessionUpdated, photos, saving, selectedFilter, session, sync, zoomLevel]);
 
   const retryOnlineUpload = useCallback(async () => {
     if (!effectiveRetryPhotoId || saving) return;
@@ -275,30 +276,31 @@ export function DisposableCamera({
   return (
     <main
       style={{
-        minHeight: "100vh",
-        backgroundColor: "var(--wedding-bg)",
+        minHeight: "100dvh",
+        backgroundColor: "#0A0A0C",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "space-between",
-        padding: "calc(var(--sat) + 12px) 16px calc(var(--sab) + 16px)",
+        padding: "calc(var(--sat) + 8px) 14px calc(var(--sab) + 12px)",
         position: "relative",
         userSelect: "none",
-        maxWidth: "480px",
+        maxWidth: "460px",
         margin: "0 auto",
+        overflowX: "hidden",
       }}
     >
       {/* Full-screen optical flash burst when taking photo */}
       {isFlashBursting && <div className="screen-flash-burst" aria-hidden="true" />}
 
-      {/* Top Wedding Header & Pass link */}
+      {/* Top Event / Keepsake Header */}
       <header
         style={{
           width: "100%",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: "10px",
+          marginBottom: "8px",
           padding: "0 4px",
         }}
       >
@@ -306,10 +308,11 @@ export function DisposableCamera({
           <span
             style={{
               fontFamily: "var(--font-serif)",
-              fontSize: "18px",
+              fontSize: "19px",
               fontWeight: 600,
-              color: "#FAF8F5",
-              letterSpacing: "-0.01em",
+              color: "#EDE8DF",
+              letterSpacing: "0.01em",
+              lineHeight: 1.2,
             }}
           >
             {wedding.coupleNames}
@@ -317,8 +320,8 @@ export function DisposableCamera({
           <span
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: "10px",
-              color: "var(--wedding-accent)",
+              fontSize: "9.5px",
+              color: "#8E8D96",
               letterSpacing: "0.14em",
               textTransform: "uppercase",
             }}
@@ -332,15 +335,16 @@ export function DisposableCamera({
             type="button"
             onClick={onBackToPass}
             style={{
-              padding: "5px 10px",
+              padding: "4px 10px",
               borderRadius: "6px",
-              backgroundColor: "rgba(255, 255, 255, 0.06)",
-              border: "1px solid rgba(255, 255, 255, 0.12)",
-              color: "#D8D4CC",
+              backgroundColor: "rgba(22, 22, 28, 0.7)",
+              border: "1px solid rgba(185, 185, 198, 0.24)",
+              color: "#D4D3DC",
               fontSize: "11px",
               fontFamily: "var(--font-sans)",
               fontWeight: 500,
               cursor: "pointer",
+              transition: "all 0.15s ease",
             }}
             aria-label="View camera pass details"
           >
@@ -355,30 +359,26 @@ export function DisposableCamera({
         <ServiceWorkerUpdateBanner isCapturingOrSaving={saving} />
       </div>
 
-      {/* Physical Disposable Camera Body */}
+      {/* Gothic Physical Disposable Camera Body */}
       <section
-        className="camera-grip-texture"
-        style={{
-          width: "100%",
-          backgroundColor: "var(--camera-casing)",
-          borderRadius: "24px",
-          border: "2px solid var(--camera-rim)",
-          boxShadow: 
-            "0 20px 40px -10px rgba(0, 0, 0, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.12), inset 0 -2px 4px rgba(0, 0, 0, 0.5)",
-          padding: "16px 14px 20px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "14px",
-          position: "relative",
-        }}
+        className="camera-grip-texture camera-body-gothic"
+        aria-label="Disposable Camera"
       >
+        {/* Subtle gothic ornamental corner lines */}
+        <div className="gothic-corner-mark gothic-corner-tl" aria-hidden="true" />
+        <div className="gothic-corner-mark gothic-corner-tr" aria-hidden="true" />
+        <div className="gothic-corner-mark gothic-corner-bl" aria-hidden="true" />
+        <div className="gothic-corner-mark gothic-corner-br" aria-hidden="true" />
+
         {/* Camera Top Bar: Flash Toggle, Printed Brand, Lens Flip */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "0 6px",
+            padding: "0 4px",
+            position: "relative",
+            zIndex: 3,
           }}
         >
           {/* Flash Mode Toggle */}
@@ -388,22 +388,25 @@ export function DisposableCamera({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "6px",
-              padding: "5px 10px",
+              gap: "5px",
+              padding: "4px 8px",
               borderRadius: "6px",
-              backgroundColor: "rgba(0, 0, 0, 0.35)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              color: flashMode === "off" ? "#7D7871" : "var(--counter-amber)",
+              backgroundColor: "rgba(10, 10, 14, 0.7)",
+              border: "1px solid rgba(185, 185, 198, 0.24)",
+              color: flashMode === "off" ? "#72717A" : "var(--counter-amber)",
               fontFamily: "var(--font-mono)",
-              fontSize: "11px",
+              fontSize: "10.5px",
               fontWeight: 600,
               cursor: "pointer",
             }}
             aria-label={`Flash mode: ${flashMode}. Tap to change.`}
           >
-            <FlashIcon size={13} />
+            <FlashIcon size={12} />
             <span>{flashMode.toUpperCase()}</span>
-            <span aria-label={hardwareTorchAvailable ? "Hardware torch available" : "Screen flash fallback"}>
+            <span
+              style={{ opacity: 0.75, fontSize: "9px" }}
+              aria-label={hardwareTorchAvailable ? "Hardware torch available" : "Screen flash fallback"}
+            >
               {hardwareTorchAvailable ? "LED" : "SCREEN"}
             </span>
           </button>
@@ -412,14 +415,15 @@ export function DisposableCamera({
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: "10.5px",
-              letterSpacing: "0.18em",
-              color: "#7E7972",
+              fontSize: "10px",
+              letterSpacing: "0.22em",
+              color: "#A3A2AC",
               textTransform: "uppercase",
               fontWeight: 700,
+              textShadow: "0 1px 2px rgba(0, 0, 0, 0.9)",
             }}
           >
-            DISPOSABLE 35MM
+            {wedding.coupleNames.toLowerCase().includes("jaseph") ? "JASEPH'S ROLL" : "DISPOCAM"}
           </div>
 
           {/* Front / Rear Camera Flip */}
@@ -430,18 +434,18 @@ export function DisposableCamera({
               display: "flex",
               alignItems: "center",
               gap: "5px",
-              padding: "5px 10px",
+              padding: "4px 8px",
               borderRadius: "6px",
-              backgroundColor: "rgba(0, 0, 0, 0.35)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              color: "#D8D4CC",
+              backgroundColor: "rgba(10, 10, 14, 0.7)",
+              border: "1px solid rgba(185, 185, 198, 0.24)",
+              color: "#D4D3DC",
               fontFamily: "var(--font-mono)",
-              fontSize: "11px",
+              fontSize: "10.5px",
               cursor: "pointer",
             }}
             aria-label="Switch front or back camera"
           >
-            <FlipCameraIcon size={13} />
+            <FlipCameraIcon size={12} />
             <span>{facingMode === "environment" ? "REAR" : "FRONT"}</span>
           </button>
         </div>
@@ -450,7 +454,7 @@ export function DisposableCamera({
         <div
           className="viewfinder-housing"
           style={{
-            height: "clamp(260px, 48vh, 360px)",
+            height: "clamp(240px, 44vh, 360px)",
             position: "relative",
           }}
         >
@@ -462,7 +466,9 @@ export function DisposableCamera({
               width: "100%",
               height: "100%",
               objectFit: "cover",
-              transform: facingMode === "user" ? "scaleX(-1)" : "none",
+              transform: facingMode === "user" ? `scaleX(-1) scale(${zoomLevel})` : `scale(${zoomLevel})`,
+              transformOrigin: "center center",
+              transition: "transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1)",
               filter: getCameraFilterPreset(selectedFilter).preview,
               display: cameraActive ? "block" : "none",
             }}
@@ -480,36 +486,32 @@ export function DisposableCamera({
             <div className="reticle-center" />
           </div>
 
+          {/* Compact Digital Zoom Controls (1x, 1.5x, 2x) */}
+          <div className="zoom-control-bar" role="group" aria-label="Digital camera zoom">
+            {([1, 1.5, 2] as const).map((lvl) => {
+              const isSelected = zoomLevel === lvl;
+              return (
+                <button
+                  key={lvl}
+                  type="button"
+                  onClick={() => setZoomLevel(lvl)}
+                  className={`zoom-btn ${isSelected ? "selected" : "unselected"}`}
+                  aria-pressed={isSelected}
+                  aria-label={`${lvl}x zoom`}
+                >
+                  {lvl}x
+                </button>
+              );
+            })}
+          </div>
+
           {/* Captured feedback notification badge */}
           {capturedFeedback && (
-            <div
-              className="captured-stamp"
-              style={{
-                position: "absolute",
-                top: "20px",
-                left: "50%",
-                transform: "translateX(-50%)",
-                backgroundColor: "rgba(18, 17, 16, 0.85)",
-                border: "1px solid var(--wedding-accent)",
-                borderRadius: "999px",
-                padding: "6px 16px",
-                color: "#FAF8F5",
-                fontFamily: "var(--font-sans)",
-                fontSize: "13px",
-                fontWeight: 600,
-                letterSpacing: "0.04em",
-                backdropFilter: "blur(6px)",
-                boxShadow: "0 4px 16px rgba(0, 0, 0, 0.5)",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                zIndex: 50,
-              }}
-            >
-              <span style={{ color: "var(--wedding-accent)", display: "flex", alignItems: "center" }}>
+            <div className="captured-stamp" role="status" aria-live="polite">
+              <span style={{ color: "#E02438", display: "flex", alignItems: "center" }}>
                 <CheckIcon size={14} />
               </span>
-              <span>{onlineCaptureRequired ? "Photo saved" : "Captured"}</span>
+              <span>PHOTO SAVED</span>
             </div>
           )}
 
@@ -523,28 +525,28 @@ export function DisposableCamera({
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: "#141312",
-                color: "#E2DDD5",
+                backgroundColor: "#0C0C0E",
+                color: "#EDE8DF",
                 padding: "20px",
                 textAlign: "center",
                 zIndex: 35,
               }}
             >
-              <div style={{ color: "var(--wedding-accent)", marginBottom: "10px" }}>
+              <div style={{ color: "var(--counter-amber)", marginBottom: "10px" }}>
                 <CameraIcon size={32} />
               </div>
-              <p style={{ fontSize: "14px", color: "#A8A29A", marginBottom: "14px", maxWidth: "260px" }}>
+              <p style={{ fontSize: "14px", color: "#8E8D96", marginBottom: "14px", maxWidth: "260px" }}>
                 {cameraError ?? "Enable camera access to capture photos."}
               </p>
               <button
                 type="button"
                 onClick={() => void initCamera(facingMode)}
                 style={{
-                  padding: "10px 18px",
+                  padding: "9px 18px",
                   borderRadius: "8px",
-                  backgroundColor: "var(--wedding-accent)",
-                  border: "none",
-                  color: "#181715",
+                  backgroundColor: "var(--camera-shutter)",
+                  border: "1px solid #A81424",
+                  color: "#FAF5EE",
                   fontWeight: 600,
                   fontSize: "13px",
                   cursor: "pointer",
@@ -556,36 +558,46 @@ export function DisposableCamera({
           )}
         </div>
 
-        {/* Middle Status & Frame Counter Bar */}
+        {/* Middle Status & Physical Frame Counter Bar */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "0 6px",
+            padding: "0 4px",
+            position: "relative",
+            zIndex: 3,
           }}
         >
-          {/* LCD Frame Counter */}
+          {/* Physical Film Counter Window */}
           <div
             className={`frame-counter-box ${isWarning ? "warning" : ""}`}
             aria-live="polite"
             aria-label={counterText}
           >
-            <span style={{ fontSize: "17px", fontWeight: 700, marginRight: "5px" }}>
-              {shotsLeft.toString().padStart(2, "0")}
-            </span>
-            <span style={{ fontSize: "10px", fontWeight: 600, opacity: 0.85 }}>
-              {finishingPending ? "FINISHING" : shotsLeft === 1 ? "LAST SHOT" : shotsLeft === 0 ? "EXHAUSTED" : "SHOTS LEFT"}
-            </span>
+            {saving ? (
+              <span className="counter-status-text">UPLOADING PHOTO...</span>
+            ) : effectiveRetryPhotoId ? (
+              <span className="counter-status-text pending">PHOTO PENDING</span>
+            ) : (
+              <>
+                <span style={{ fontSize: "16px", fontWeight: 700, marginRight: "5px" }}>
+                  {shotsLeft.toString().padStart(2, "0")}
+                </span>
+                <span style={{ fontSize: "9.5px", fontWeight: 600, opacity: 0.85, letterSpacing: "0.1em" }}>
+                  {finishingPending ? "FINISHING" : shotsLeft === 1 ? "LAST SHOT" : shotsLeft === 0 ? "EXHAUSTED" : "SHOTS LEFT"}
+                </span>
+              </>
+            )}
           </div>
 
-          {/* Fine Vintage Stamped Mark */}
+          {/* Fine Gothic Stamped Roll Number */}
           <div
             style={{
               fontFamily: "var(--font-mono)",
               fontSize: "10px",
-              color: "#6D6862",
-              letterSpacing: "0.1em",
+              color: "#72717A",
+              letterSpacing: "0.12em",
               textTransform: "uppercase",
             }}
           >
@@ -593,18 +605,24 @@ export function DisposableCamera({
           </div>
         </div>
 
-        {/* Lower Control Deck: Shutter Button or Roll Finished */}
+        {/* Lower Control Deck: Filters & Shutter Button */}
         <div
           style={{
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            padding: "10px 0 6px",
-            minHeight: "110px",
+            padding: "4px 0 2px",
+            gap: "10px",
+            position: "relative",
+            zIndex: 3,
           }}
         >
-          <div role="group" aria-label="Photo filter" style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "6px", marginBottom: "10px" }}>
+          <div
+            role="group"
+            aria-label="Photo filter"
+            className="filters-scroll-row"
+          >
             {CAMERA_FILTERS.map((filter) => {
               const selected = selectedFilter === filter.id;
               return (
@@ -613,55 +631,56 @@ export function DisposableCamera({
                   type="button"
                   aria-pressed={selected}
                   onClick={() => setSelectedFilter(filter.id)}
-                  style={{
-                    border: `1px solid ${selected ? "var(--wedding-accent)" : "rgba(255,255,255,.16)"}`,
-                    borderRadius: "999px",
-                    padding: "7px 10px",
-                    background: selected ? "var(--wedding-accent)" : "rgba(255,255,255,.06)",
-                    color: selected ? "#181715" : "#D8D4CC",
-                    fontSize: "11px",
-                    fontWeight: selected ? 700 : 500,
-                    cursor: "pointer",
-                  }}
+                  className={`filter-pill ${selected ? "selected" : "unselected"}`}
                 >
                   {filter.label}
                 </button>
               );
             })}
           </div>
+
           {!showRollFinished ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
               <button
                 type="button"
                 className="shutter-button"
-                disabled={!canStartCountedCapture({ requiresOnlineCapture: onlineCaptureRequired, backendOnline: !network.offline, cameraReady: cameraActive, saving, hasShots: usableCapacity > 0 && photos.canCapture })}
+                disabled={
+                  !canStartCountedCapture({
+                    requiresOnlineCapture: onlineCaptureRequired,
+                    backendOnline: !network.offline,
+                    cameraReady: cameraActive,
+                    saving,
+                    hasShots: usableCapacity > 0 && photos.canCapture,
+                  })
+                }
                 onClick={() => void handleShutter()}
-                aria-label={saving ? "Saving photo…" : `Take photo. ${counterText}.`}
+                aria-label={saving ? "Uploading photo…" : `Take photo. ${counterText}.`}
               >
                 <div className="shutter-inner-ring" />
               </button>
-              <span
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "9.5px",
-                  letterSpacing: "0.2em",
-                  color: "#8C867E",
-                  textTransform: "uppercase",
-                  fontWeight: 600,
-                }}
-              >
-                {saving
-                  ? sync.checkingPhoto
-                    ? "CHECKING PHOTO…"
-                    : sync.savingUpload
-                    ? "SAVING…"
-                    : `UPLOADING…${sync.uploadPercent === null ? "" : ` ${sync.uploadPercent}%`}`
-                  : finishingPending
-                    ? `FINISHING ${photos.localPendingShots} PHOTO${photos.localPendingShots === 1 ? "" : "S"}…`
-                  : onlineCaptureRequired && network.offline
-                    ? "WI-FI OR MOBILE DATA REQUIRED"
-                    : "SHUTTER"}
-              </span>
+
+              {/* Shutter Status / Inline Retry Area */}
+              <div style={{ minHeight: "22px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {saving ? (
+                  <span className="shutter-substatus uploading">UPLOADING PHOTO...</span>
+                ) : effectiveRetryPhotoId ? (
+                  <div className="upload-inline-error">
+                    <span>Upload failed</span>
+                    <button
+                      type="button"
+                      onClick={() => void retryOnlineUpload()}
+                      className="retry-inline-btn"
+                      aria-label="Retry upload"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : onlineCaptureRequired && network.offline ? (
+                  <span className="shutter-substatus offline">WI-FI OR MOBILE DATA REQUIRED</span>
+                ) : (
+                  <span className="shutter-substatus idle">SHUTTER</span>
+                )}
+              </div>
             </div>
           ) : (
             <RollFinished
@@ -682,32 +701,23 @@ export function DisposableCamera({
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: "8px",
-          marginTop: "12px",
+          gap: "6px",
+          marginTop: "6px",
         }}
       >
-        {onlineCaptureRequired && (network.offline || uploadNotice || (effectiveRetryPhotoId && !saving)) && (
-          <div role="status" style={{ maxWidth: "360px", textAlign: "center", color: "#F6C177", fontSize: "13px", lineHeight: 1.45 }}>
-            <strong>{network.online ? "Upload failed" : "Internet connection required"}</strong><br />
-            {uploadNotice ?? (effectiveRetryPhotoId ? "Upload failed — Retry" : "Connect to Wi-Fi or mobile data to take and upload photos.")}
-          </div>
+        {!onlineCaptureRequired && (
+          <SyncStatusBar
+            state={sync.state}
+            offline={offline || network.offline}
+            waitingCount={photos.localPendingShots}
+            attentionCount={attentionPhotos.length}
+            retryableCount={retryablePhotos.length}
+            authenticationRequired={!token}
+            onOpenAttention={() => setShowAttentionModal(true)}
+            progress={sync.progress}
+            queueFailure={sync.queueFailure}
+          />
         )}
-        {onlineCaptureRequired && effectiveRetryPhotoId && !saving && (
-          <button type="button" onClick={() => void retryOnlineUpload()} style={{ padding: "10px 18px", borderRadius: "999px", border: 0, fontWeight: 700, cursor: "pointer" }}>
-            Retry
-          </button>
-        )}
-        {!onlineCaptureRequired && <SyncStatusBar
-          state={sync.state}
-          offline={offline || network.offline}
-          waitingCount={photos.localPendingShots}
-          attentionCount={attentionPhotos.length}
-          retryableCount={retryablePhotos.length}
-          authenticationRequired={!token}
-          onOpenAttention={() => setShowAttentionModal(true)}
-          progress={sync.progress}
-          queueFailure={sync.queueFailure}
-        />}
         {process.env.NODE_ENV !== "production" && (
           <button
             type="button"
@@ -716,7 +726,7 @@ export function DisposableCamera({
               await offlinePhotoStore.clearPhotosForPass(session.cameraPassId);
               await photos.refresh();
             }}
-            style={{ background: "none", border: 0, color: "#8c867e", fontSize: "11px", textDecoration: "underline" }}
+            style={{ background: "none", border: 0, color: "#6A6972", fontSize: "10.5px", textDecoration: "underline", cursor: "pointer", marginTop: "2px" }}
           >
             Clear local test photos for this pass
           </button>

@@ -70,10 +70,25 @@ export function drawCameraFilter(
   filter: CameraFilter,
   width: number,
   height: number,
+  sourceRect?: { sx: number; sy: number; sWidth: number; sHeight: number },
 ) {
   const preset = PRESETS[filter];
   context.filter = preset.canvas;
-  context.drawImage(source, 0, 0, width, height);
+  if (sourceRect) {
+    context.drawImage(
+      source,
+      sourceRect.sx,
+      sourceRect.sy,
+      sourceRect.sWidth,
+      sourceRect.sHeight,
+      0,
+      0,
+      width,
+      height,
+    );
+  } else {
+    context.drawImage(source, 0, 0, width, height);
+  }
   context.filter = "none";
   if (preset.overlay) {
     context.save();

@@ -16,24 +16,24 @@
   --wedding-accent-light: #EFE6D9;
   --wedding-gold-border: rgba(195, 153, 107, 0.4);
 
-  /* Camera physical styling */
-  --camera-casing: #22211F;
-  --camera-casing-subtle: #2A2825;
-  --camera-casing-deep: #161514;
-  --camera-rim: #3D3B37;
-  --camera-lens-border: #141312;
-  --camera-shutter: #D6392E;
-  --camera-shutter-press: #B0251B;
-  --camera-metal: #85827C;
-  --camera-metal-light: #C2BFB8;
+/* Gothic / Dark Romantic camera physical styling */
+  --camera-casing: #17161A;
+  --camera-casing-subtle: #212025;
+  --camera-casing-deep: #100F12;
+  --camera-rim: #3E3D46;
+  --camera-lens-border: #0C0C0E;
+  --camera-shutter: #800A15;
+  --camera-shutter-press: #4E060D;
+  --camera-metal: #8E8D96;
+  --camera-metal-light: #C5C4CE;
 
-  /* LCD / mechanical frame counter */
-  --counter-bg: #11140E;
-  --counter-border: #2B2E27;
-  --counter-amber: #F2A33A;
-  --counter-amber-glow: rgba(242, 163, 58, 0.28);
-  --counter-amber-dim: #4B3314;
-  --counter-last-shot: #FF4D36;
+  /* Gothic film counter */
+  --counter-bg: #070709;
+  --counter-border: #2E2D33;
+  --counter-amber: #D92332;
+  --counter-amber-glow: rgba(217, 35, 50, 0.4);
+  --counter-amber-dim: #3D080D;
+  --counter-last-shot: #FF3B50;
 
   /* Safe areas for mobile */
   --sat: env(safe-area-inset-top, 0px);
@@ -53,7 +53,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow-x: hidden;
-  background-color: var(--wedding-bg);
+  background-color: #0A0A0C;
   color: #ECE8E1;
   font-family: var(--font-sans);
   font-size: 15px;
@@ -63,11 +63,28 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Texture pattern simulating camera casing grip */
+/* Texture pattern simulating fine camera casing grip */
 .camera-grip-texture {
-  background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.04) 1px, transparent 0);
-  background-size: 4px 4px;
+  background-color: var(--camera-casing);
+  background-image: 
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.035) 1px, transparent 0),
+    linear-gradient(175deg, #222126 0%, #161519 45%, #100F12 100%);
+  background-size: 4px 4px, 100% 100%;
 }
+
+/* Subtle gothic corner ornamental lines on the camera body */
+.gothic-corner-mark {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  border-color: rgba(185, 185, 198, 0.32);
+  z-index: 2;
+}
+.gothic-corner-tl { top: 6px; left: 6px; border-top: 1px solid; border-left: 1px solid; }
+.gothic-corner-tr { top: 6px; right: 6px; border-top: 1px solid; border-right: 1px solid; }
+.gothic-corner-bl { bottom: 6px; left: 6px; border-bottom: 1px solid; border-left: 1px solid; }
+.gothic-corner-br { bottom: 6px; right: 6px; border-bottom: 1px solid; border-right: 1px solid; }
 
 /* Subtle paper grain texture for wedding keepsake */
 .keepsake-paper-texture {
@@ -78,83 +95,85 @@ html, body {
     linear-gradient(180deg, #FFFFFF 0%, #FAF6EE 100%);
 }
 
-/* Mechanical shutter button */
+/* Mechanical shutter button - Oxblood / Dark Red center with Metallic Silver Outer Ring */
 .shutter-button {
   position: relative;
-  width: 82px;
-  height: 82px;
+  width: 80px;
+  height: 80px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #E84C3F 0%, var(--camera-shutter) 60%, var(--camera-shutter-press) 100%);
-  border: 4px solid #1A1918;
+  background: radial-gradient(circle at 35% 30%, #9E1220 0%, #730B16 55%, #46050D 100%);
+  border: 3px solid #85848E;
   box-shadow: 
-    0 0 0 3px var(--camera-rim),
-    0 0 0 5px #151413,
-    0 10px 22px rgba(0, 0, 0, 0.65),
-    inset 0 2px 4px rgba(255, 255, 255, 0.35),
-    inset 0 -3px 6px rgba(0, 0, 0, 0.45);
+    0 0 0 2px #100F12,
+    0 0 0 4.5px rgba(185, 185, 198, 0.28),
+    0 12px 26px rgba(0, 0, 0, 0.85),
+    inset 0 1.5px 3px rgba(255, 255, 255, 0.4),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.65);
   cursor: pointer;
-  transition: transform 0.08s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.08s ease;
+  transition: transform 0.08s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.08s ease, filter 0.12s ease;
   display: flex;
   align-items: center;
   justify-content: center;
   outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .shutter-button:focus-visible {
   box-shadow: 
-    0 0 0 3px var(--wedding-accent),
-    0 0 0 6px #151413,
-    0 10px 24px rgba(0, 0, 0, 0.75);
+    0 0 0 3px var(--counter-amber),
+    0 0 0 6px #100F12,
+    0 12px 28px rgba(0, 0, 0, 0.9);
 }
 
 .shutter-button:active:not(:disabled) {
-  transform: scale(0.93) translateY(3px);
-  background: radial-gradient(circle at 50% 50%, var(--camera-shutter-press) 0%, #8C1C13 100%);
+  transform: scale(0.93) translateY(2.5px);
+  background: radial-gradient(circle at 50% 50%, #520710 0%, #300308 100%);
   box-shadow: 
-    0 0 0 3px var(--camera-rim),
-    0 0 0 5px #151413,
-    0 3px 8px rgba(0, 0, 0, 0.8),
-    inset 0 3px 6px rgba(0, 0, 0, 0.65);
+    0 0 0 2px #100F12,
+    0 0 0 4px rgba(185, 185, 198, 0.2),
+    0 4px 10px rgba(0, 0, 0, 0.9),
+    inset 0 3px 7px rgba(0, 0, 0, 0.85);
 }
 
 .shutter-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
-  filter: grayscale(0.5);
+  filter: grayscale(0.6);
   transform: none;
 }
 
 /* Shutter inner concentric grooves */
 .shutter-inner-ring {
-  width: 58px;
-  height: 58px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
-  border: 1px dashed rgba(255, 255, 255, 0.25);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+  border: 1px dashed rgba(255, 255, 255, 0.24);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
   pointer-events: none;
 }
 
-/* Frame counter window (retro LCD style) */
+/* Frame counter window (physical film counter style) */
 .frame-counter-box {
   background-color: var(--counter-bg);
-  border: 2px solid var(--counter-border);
+  border: 1px solid rgba(185, 185, 198, 0.28);
   box-shadow: 
-    inset 0 2px 5px rgba(0, 0, 0, 0.9),
-    0 1px 1px rgba(255, 255, 255, 0.08);
+    inset 0 2px 6px rgba(0, 0, 0, 0.95),
+    0 1px 1px rgba(255, 255, 255, 0.06);
   border-radius: 6px;
-  padding: 5px 9px;
+  padding: 4px 9px;
   font-family: var(--font-mono);
   color: var(--counter-amber);
-  text-shadow: 0 0 6px var(--counter-amber-glow);
+  text-shadow: 0 0 8px var(--counter-amber-glow);
   letter-spacing: 0.08em;
   display: inline-flex;
   align-items: baseline;
   user-select: none;
+  min-height: 28px;
 }
 
 .frame-counter-box.warning {
   color: var(--counter-last-shot);
-  text-shadow: 0 0 8px rgba(255, 77, 54, 0.5);
+  text-shadow: 0 0 8px rgba(255, 59, 80, 0.6);
 }
 
 /* Viewfinder housing */
@@ -163,12 +182,12 @@ html, body {
   width: 100%;
   border-radius: 14px;
   overflow: hidden;
-  background-color: #0C0B0A;
-  border: 3px solid #141312;
+  background-color: #070709;
+  border: 2px solid #0E0E12;
   box-shadow: 
-    0 0 0 1px rgba(255, 255, 255, 0.08),
-    inset 0 0 20px rgba(0, 0, 0, 0.8),
-    0 8px 24px rgba(0, 0, 0, 0.6);
+    0 0 0 1px rgba(185, 185, 198, 0.22),
+    inset 0 0 20px rgba(0, 0, 0, 0.92),
+    0 8px 24px rgba(0, 0, 0, 0.7);
 }
 
 /* Viewfinder optical reticle overlay */
@@ -182,15 +201,15 @@ html, body {
 /* Corner framing marks */
 .reticle-corner {
   position: absolute;
-  width: 18px;
-  height: 18px;
-  border-color: rgba(255, 255, 255, 0.7);
+  width: 16px;
+  height: 16px;
+  border-color: rgba(200, 200, 212, 0.55);
   pointer-events: none;
 }
-.reticle-corner-tl { top: 16px; left: 16px; border-top: 2px solid; border-left: 2px solid; }
-.reticle-corner-tr { top: 16px; right: 16px; border-top: 2px solid; border-right: 2px solid; }
-.reticle-corner-bl { bottom: 16px; left: 16px; border-bottom: 2px solid; border-left: 2px solid; }
-.reticle-corner-br { bottom: 16px; right: 16px; border-bottom: 2px solid; border-right: 2px solid; }
+.reticle-corner-tl { top: 12px; left: 12px; border-top: 1.5px solid; border-left: 1.5px solid; }
+.reticle-corner-tr { top: 12px; right: 12px; border-top: 1.5px solid; border-right: 1.5px solid; }
+.reticle-corner-bl { bottom: 12px; left: 12px; border-bottom: 1.5px solid; border-left: 1.5px solid; }
+.reticle-corner-br { bottom: 12px; right: 12px; border-bottom: 1.5px solid; border-right: 1.5px solid; }
 
 /* Center focus crosshair */
 .reticle-center {
@@ -198,26 +217,26 @@ html, body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   pointer-events: none;
 }
 .reticle-center::before, .reticle-center::after {
   content: "";
   position: absolute;
-  background-color: rgba(255, 255, 255, 0.65);
+  background-color: rgba(200, 200, 212, 0.45);
 }
 .reticle-center::before {
-  top: 10px;
-  left: 2px;
-  width: 18px;
-  height: 1.5px;
+  top: 8.5px;
+  left: 1px;
+  width: 16px;
+  height: 1px;
 }
 .reticle-center::after {
-  top: 2px;
-  left: 10px;
-  width: 1.5px;
-  height: 18px;
+  top: 1px;
+  left: 8.5px;
+  width: 1px;
+  height: 16px;
 }
 
 /* Mechanical shutter blade blink animation */
@@ -263,8 +282,218 @@ html, body {
 }
 
 .captured-stamp {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(14, 13, 18, 0.92);
+  border: 1px solid rgba(185, 185, 198, 0.35);
+  border-radius: 999px;
+  padding: 6px 16px;
+  color: #FAF5EE;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.8), 0 0 10px rgba(185, 20, 36, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  z-index: 50;
   animation: toastPop 1.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Gothic Camera Body Container */
+.camera-body-gothic {
+  position: relative;
+  width: 100%;
+  border-radius: 22px;
+  border: 1px solid rgba(185, 185, 198, 0.28);
+  box-shadow: 
+    0 20px 48px -8px rgba(0, 0, 0, 0.92),
+    inset 0 1px 1px rgba(255, 255, 255, 0.14),
+    inset 0 -2px 5px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(0, 0, 0, 0.8);
+  padding: 14px 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+/* Digital Zoom Controls Bar */
+.zoom-control-bar {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 25;
+  padding: 3px 6px;
+  background: rgba(10, 10, 14, 0.75);
+  border: 1px solid rgba(185, 185, 198, 0.22);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
+}
+
+.zoom-btn {
+  min-width: 38px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.zoom-btn.selected {
+  background-color: var(--camera-shutter);
+  border: 1px solid #A81424;
+  color: #FAF5EE;
+  font-weight: 700;
+  box-shadow: 0 1px 8px rgba(128, 10, 21, 0.55);
+}
+
+.zoom-btn.unselected {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--camera-metal);
+  font-weight: 500;
+}
+
+.zoom-btn.unselected:hover {
+  color: #FAF5EE;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Gothic Film Counter Status Text */
+.counter-status-text {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.counter-status-text.pending {
+  color: #FF4D5E;
+}
+
+/* Filter Controls Row */
+.filters-scroll-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 2px 4px;
+  max-width: 100%;
+  justify-content: center;
+}
+.filters-scroll-row::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-pill {
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.filter-pill.selected {
+  background: #6D0C17;
+  border: 1px solid #991624;
+  color: #FAF5EE;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(109, 12, 23, 0.45);
+}
+
+.filter-pill.unselected {
+  background: rgba(18, 18, 22, 0.6);
+  border: 1px solid rgba(185, 185, 198, 0.22);
+  color: #8E8D96;
+  font-weight: 500;
+}
+
+.filter-pill.unselected:hover {
+  color: #D4D3DC;
+  border-color: rgba(185, 185, 198, 0.35);
+}
+
+/* Inline Upload Error & Retry */
+.upload-inline-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #FF4D5E;
+  letter-spacing: 0.05em;
+  background: rgba(12, 12, 16, 0.7);
+  padding: 3px 8px 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 77, 94, 0.3);
+}
+
+.retry-inline-btn {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(109, 12, 23, 0.4);
+  border: 1px solid #991624;
+  color: #FAF5EE;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.06em;
+  transition: background 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.retry-inline-btn:hover {
+  background: #6D0C17;
+}
+
+.shutter-substatus {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.shutter-substatus.uploading {
+  color: #FF4D5E;
+}
+
+.shutter-substatus.offline {
+  color: #8E8D96;
+  font-size: 9px;
+}
+
+.shutter-substatus.idle {
+  color: #8E8D96;
+}
+
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {

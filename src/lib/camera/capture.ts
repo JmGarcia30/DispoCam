@@ -57,8 +57,12 @@ export async function attachCamera(video: HTMLVideoElement, stream: MediaStream)
   await video.play();
 }
 
-/** Captures the current video frame. The canvas re-encoding strips camera metadata. */
-export async function captureVideoFrame(video: HTMLVideoElement, filter: CameraFilter = "original"): Promise<Blob> {
+/** Captures the current video frame with optional digital zoom center-crop. The canvas re-encoding strips camera metadata. */
+export async function captureVideoFrame(
+  video: HTMLVideoElement,
+  filter: CameraFilter = "original",
+  zoom = 1,
+): Promise<Blob> {
   if (!video.videoWidth || !video.videoHeight) {
     throw new CameraError("capture-failed", "The camera is not ready to take a photo.");
   }
@@ -67,9 +71,21 @@ export async function captureVideoFrame(video: HTMLVideoElement, filter: CameraF
   canvas.height = video.videoHeight;
   const context = canvas.getContext("2d");
   if (!context) throw new CameraError("capture-failed", "This browser cannot process the camera image.");
+
+  const zoomFactor = Math.max(1, zoom);
+  const sourceRect =
+    zoomFactor > 1
+      ? {
+          sx: (video.videoWidth - video.videoWidth / zoomFactor) / 2,
+          sy: (video.videoHeight - video.videoHeight / zoomFactor) / 2,
+          sWidth: video.videoWidth / zoomFactor,
+          sHeight: video.videoHeight / zoomFactor,
+        }
+      : undefined;
+
   let blob: Blob | null = null;
   try {
-    drawCameraFilter(context, video, filter, canvas.width, canvas.height);
+    drawCameraFilter(context, video, filter, canvas.width, canvas.height, sourceRect);
     blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
   } catch {
     if (filter === "original") throw new CameraError("capture-failed", "The photo could not be captured.");
@@ -80,7 +96,21 @@ export async function captureVideoFrame(video: HTMLVideoElement, filter: CameraF
       context.globalCompositeOperation = "source-over";
       context.globalAlpha = 1;
       context.clearRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      if (sourceRect) {
+        context.drawImage(
+          video,
+          sourceRect.sx,
+          sourceRect.sy,
+          sourceRect.sWidth,
+          sourceRect.sHeight,
+          0,
+          0,
+          canvas.width,
+          canvas.height,
+        );
+      } else {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }
       blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
     } catch {
       blob = null;

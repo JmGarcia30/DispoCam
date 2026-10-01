@@ -11,271 +11,162 @@ interface WelcomeScreenProps {
   isLoading?: boolean;
 }
 
+function GothicPartyCrest() {
+  return (
+    <div className="party-crest-symbol" aria-hidden="true">
+      <svg width="42" height="42" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* Outer dashed aura ring */}
+        <circle cx="20" cy="20" r="18" stroke="rgba(185, 25, 40, 0.35)" strokeWidth="1" strokeDasharray="3 3" />
+        {/* Inner silver frame ring */}
+        <circle cx="20" cy="20" r="13" stroke="rgba(195, 190, 205, 0.4)" strokeWidth="1" />
+        {/* 8-pointed gothic star emblem */}
+        <path
+          d="M20 2L22.8 14.5L35 12L25.5 20L35 28L22.8 25.5L20 38L17.2 25.5L5 28L14.5 20L5 12L17.2 14.5Z"
+          fill="#1C090C"
+          stroke="rgba(210, 35, 50, 0.75)"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+        {/* Blood red radiant core */}
+        <circle cx="20" cy="20" r="4.5" fill="#BA1B2B" />
+        <circle cx="20" cy="20" r="2.2" fill="#FF5E6F" />
+      </svg>
+    </div>
+  );
+}
+
 export function WelcomeScreen({
   wedding,
   shotsRemaining,
   onEnterCamera,
   isLoading = false,
 }: WelcomeScreenProps) {
+  const isJaseph = !wedding.coupleNames || wedding.coupleNames.toLowerCase().includes("jaseph");
+  const heroTitle = isJaseph ? "JASEPH'S" : wedding.coupleNames;
+
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "calc(var(--sat) + 24px) 20px calc(var(--sab) + 24px)",
-        backgroundColor: "var(--wedding-bg)",
-        backgroundImage: "radial-gradient(ellipse at 50% 20%, rgba(195, 153, 107, 0.12) 0%, transparent 70%)",
-      }}
-    >
-      {/* Keepsake Pass Card */}
-      <div
-        className="keepsake-paper-texture"
-        style={{
-          width: "100%",
-          maxWidth: "390px",
-          borderRadius: "20px",
-          padding: "36px 26px 32px",
-          boxShadow: 
-            "0 24px 48px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(195, 153, 107, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.6)",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          textAlign: "center",
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
-        {/* Subtle decorative inner border */}
-        <div
-          style={{
-            position: "absolute",
-            inset: "10px",
-            border: "1px solid rgba(195, 153, 107, 0.35)",
-            borderRadius: "14px",
-            pointerEvents: "none",
-          }}
-        />
+    <main className="party-invitation-container">
+      {/* Gothic Halloween Birthday Party Flyer Card */}
+      <div className="party-flyer-card">
+        {/* Inner hairline ornamental border */}
+        <div className="party-card-inner-border" />
 
-        {/* Small corner ticket notches */}
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: "-10px",
-            width: "20px",
-            height: "20px",
-            borderRadius: "50%",
-            backgroundColor: "var(--wedding-bg)",
-            transform: "translateY(-50%)",
-            boxShadow: "inset -2px 0 3px rgba(0, 0, 0, 0.3)",
-          }}
-        />
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            right: "-10px",
-            width: "20px",
-            height: "20px",
-            borderRadius: "50%",
-            backgroundColor: "var(--wedding-bg)",
-            transform: "translateY(-50%)",
-            boxShadow: "inset 2px 0 3px rgba(0, 0, 0, 0.3)",
-          }}
-        />
+        {/* Four gothic metallic corner brackets */}
+        <div className="party-corner party-corner-tl" />
+        <div className="party-corner party-corner-tr" />
+        <div className="party-corner party-corner-bl" />
+        <div className="party-corner party-corner-br" />
 
-        {/* Monogram crest */}
-        <div
-          style={{
-            width: "48px",
-            height: "48px",
-            borderRadius: "50%",
-            border: "1.5px solid var(--wedding-accent)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--wedding-accent)",
-            fontFamily: "var(--font-serif)",
-            fontSize: "20px",
-            fontStyle: "italic",
-            marginBottom: "18px",
-            boxShadow: "0 2px 6px rgba(195, 153, 107, 0.2)",
-          }}
-        >
-          {wedding.monogram}
+        {/* Top Gothic Emblem (8-pointed star / dark crest) */}
+        <GothicPartyCrest />
+
+        {/* Top Invitation Eyebrow */}
+        <div className="party-eyebrow">
+          {wedding.editionLabel || "EXCLUSIVE INVITATION"}
         </div>
 
-        {/* Pass Header Label */}
-        <div
-          style={{
-            fontFamily: "var(--font-sans)",
-            fontSize: "10.5px",
-            letterSpacing: "0.22em",
-            textTransform: "uppercase",
-            color: "var(--wedding-accent)",
-            fontWeight: 700,
-            marginBottom: "12px",
-          }}
-        >
-          {wedding.editionLabel}
-        </div>
-
-        {/* Couple Names */}
-        <h1
-          style={{
-            fontFamily: "var(--font-serif)",
-            fontSize: "36px",
-            fontWeight: 500,
-            lineHeight: 1.15,
-            color: "var(--wedding-text-primary)",
-            margin: "0 0 10px",
-            letterSpacing: "-0.015em",
-          }}
-        >
-          {wedding.coupleNames}
+        {/* Center: Large Hero Name */}
+        <h1 className="party-hero-name">
+          {heroTitle}
         </h1>
 
-        {/* Wedding Date */}
-        <div
-          style={{
-            fontFamily: "var(--font-sans)",
-            fontSize: "12px",
-            letterSpacing: "0.14em",
-            textTransform: "uppercase",
-            color: "var(--wedding-text-muted)",
-            fontWeight: 500,
-            marginBottom: "24px",
-          }}
-        >
-          {wedding.weddingDate}
+        {/* Below: Event Subtitle */}
+        <div className="party-hero-subtitle">
+          BIRTHDAY CELEBRATION
         </div>
 
-        {/* Guest Greeting if available */}
+        {/* Theme Pill: HALLOWEEN PARTY */}
+        <div className="party-theme-tag">
+          <span className="party-theme-label">THEME</span>
+          <span className="party-theme-name">HALLOWEEN PARTY</span>
+        </div>
+
+        {/* Costume Rule: COSTUME IS MANDATORY */}
+        <div className="party-costume-notice">
+          ✦ COSTUME IS MANDATORY ✦
+        </div>
+
+        {/* VIP Guest Reservation (if provided) */}
         {wedding.guestName && (
-          <div
-            style={{
-              fontSize: "13px",
-              fontStyle: "italic",
-              fontFamily: "var(--font-serif)",
-              color: "var(--wedding-text-muted)",
-              marginBottom: "12px",
-            }}
-          >
-            Reserved for {wedding.guestName}
+          <div className="party-vip-guest">
+            VIP PASS RESERVED FOR: <strong>{wedding.guestName}</strong>
           </div>
         )}
 
-        {/* Dashed tear line */}
-        <div
-          style={{
-            width: "calc(100% - 20px)",
-            borderBottom: "1px dashed rgba(195, 153, 107, 0.4)",
-            margin: "4px 0 24px",
-          }}
-        />
+        {/* Gothic ornamental divider */}
+        <div className="party-gothic-divider" aria-hidden="true">
+          <span className="party-divider-line" />
+          <span className="party-divider-glyph">◆</span>
+          <span className="party-divider-line" />
+        </div>
 
-        {/* Message */}
-        <p
-          style={{
-            fontFamily: "var(--font-serif)",
-            fontSize: "19px",
-            fontStyle: "italic",
-            color: "var(--wedding-text-primary)",
-            lineHeight: 1.35,
-            marginBottom: "22px",
-            maxWidth: "280px",
-          }}
-        >
+        {/* Welcome Message / Atmosphere Quote */}
+        <p className="party-welcome-quote">
           &ldquo;{wedding.welcomeMessage}&rdquo;
         </p>
 
-        {/* Remaining shots tag */}
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            backgroundColor: "rgba(195, 153, 107, 0.12)",
-            border: "1px solid rgba(195, 153, 107, 0.3)",
-            borderRadius: "8px",
-            padding: "6px 14px",
-            marginBottom: "28px",
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "16px",
-              fontWeight: 700,
-              color: "var(--wedding-text-primary)",
-            }}
-          >
-            {shotsRemaining}
-          </span>
-          <span
-            style={{
-              fontFamily: "var(--font-sans)",
-              fontSize: "11px",
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              fontWeight: 600,
-              color: "var(--wedding-text-muted)",
-            }}
-          >
+        {/* Lower Section: Event Details Grid (Party Flyer Presentation) */}
+        <div className="party-details-grid">
+          <div className="party-detail-card">
+            <span className="party-detail-label">DATE</span>
+            <span className="party-detail-value">{wedding.weddingDate}</span>
+            {wedding.days && (
+              <span style={{ fontSize: "11px", color: "#ADA9BA", marginTop: "2px", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                {wedding.days}
+              </span>
+            )}
+          </div>
+
+          <div className="party-detail-card">
+            <span className="party-detail-label">TIME</span>
+            <span className="party-detail-value">{wedding.time || "6:00 PM"}</span>
+          </div>
+
+          <div className="party-detail-card">
+            <span className="party-detail-label">VILLA</span>
+            <span className="party-detail-value">{wedding.villa || "Casa de Elvira"}</span>
+          </div>
+
+          <div className="party-detail-card">
+            <span className="party-detail-label">WHAT TO BRING</span>
+            <span className="party-detail-value">
+              {wedding.whatToBring || "Alak"}
+            </span>
+          </div>
+
+          <div className="party-detail-card party-detail-full">
+            <span className="party-detail-label">LOCATION</span>
+            <span className="party-detail-value" style={{ fontSize: "12px", lineHeight: "1.35", letterSpacing: "0.01em" }}>
+              {wedding.location || "Block 12, Lot 19 Mercury Street, Santo Niño, San Fernando, Pampanga, 2000"}
+            </span>
+          </div>
+        </div>
+
+        {/* Party Shots Counter Badge */}
+        <div className="party-shots-badge">
+          <span className="party-shots-dot" />
+          <span className="party-shots-count">{shotsRemaining}</span>
+          <span className="party-shots-label">
             {shotsRemaining === 1 ? "Shot Remaining" : "Shots Remaining"}
           </span>
         </div>
 
-        {/* Primary Action: Open Camera */}
+        {/* Primary Action Button: Open Camera */}
         <button
           type="button"
           disabled={isLoading}
           onClick={onEnterCamera}
-          style={{
-            width: "100%",
-            padding: "16px 24px",
-            borderRadius: "12px",
-            backgroundColor: "#201E1C",
-            color: "#FAF8F5",
-            border: "1px solid rgba(195, 153, 107, 0.4)",
-            fontFamily: "var(--font-sans)",
-            fontSize: "15px",
-            fontWeight: 600,
-            letterSpacing: "0.02em",
-            cursor: isLoading ? "wait" : "pointer",
-            boxShadow: "0 8px 18px rgba(0, 0, 0, 0.35)",
-            transition: "transform 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "10px",
-          }}
-          onMouseDown={(e) => {
-            e.currentTarget.style.transform = "scale(0.98)";
-          }}
-          onMouseUp={(e) => {
-            e.currentTarget.style.transform = "scale(1)";
-          }}
+          className="party-enter-btn"
+          aria-label="Open Camera"
         >
           <span>{isLoading ? "Preparing Camera…" : "Open Camera"}</span>
-          <span style={{ display: "flex", alignItems: "center", color: "var(--wedding-accent)" }}>
+          <span style={{ display: "flex", alignItems: "center", color: "#FF3B50" }}>
             <ArrowRightIcon size={16} />
           </span>
         </button>
 
-        {/* Helper subtext */}
-        <div
-          style={{
-            marginTop: "16px",
-            fontSize: "12px",
-            color: "var(--wedding-text-muted)",
-            lineHeight: 1.4,
-            maxWidth: "260px",
-          }}
-        >
+        {/* Helper Subtext */}
+        <div className="party-subtext">
           {wedding.subMessage}
         </div>
       </div>

@@ -3,6 +3,7 @@ import type { OfflineCameraSession } from "@/lib/offline/types";
 export interface WeddingConfig {
   coupleNames: string;
   weddingDate: string;
+  days?: string;
   welcomeMessage: string;
   subMessage: string;
   accentColor: string;
@@ -13,24 +14,33 @@ export interface WeddingConfig {
   editionLabel: string;
   guestName?: string;
   requiresOnlineCapture: boolean;
+  time?: string;
+  location?: string;
+  villa?: string;
+  whatToBring?: string;
 }
 
 export const DEFAULT_WEDDING_CONFIG: WeddingConfig = {
-  coupleNames: "Paul and Angelica",
+  coupleNames: "Jaseph",
   weddingDate: "November 19, 2026",
+  days: "Thursday–Friday",
   welcomeMessage: "Capture the night from your point of view.",
   subMessage: "No app needed. Your photos will upload automatically.",
-  accentColor: "#C59B6A", // Warm antique brass / champagne gold
-  accentLightColor: "#F4EDE2",
-  backgroundColor: "#161514",
-  cameraBodyColor: "#22211F",
-  monogram: "P & A",
-  editionLabel: "WEDDING CAMERA PASS",
+  accentColor: "#9E1B22", // Gothic blood red
+  accentLightColor: "#E2DCDA",
+  backgroundColor: "#070608",
+  cameraBodyColor: "#141318",
+  monogram: "J",
+  editionLabel: "HALLOWEEN PARTY PASS",
   requiresOnlineCapture: false,
+  time: "6:00 PM",
+  location: "Block 12, Lot 19 Mercury Street, Santo Niño, San Fernando, Pampanga, 2000",
+  villa: "Casa de Elvira",
+  whatToBring: "Alak",
 };
 
 /**
- * Resolves wedding configuration, blending defaults with session details.
+ * Resolves event/invitation configuration, blending defaults with session details.
  */
 export function resolveWeddingConfig(
   session?: Partial<OfflineCameraSession> | null,
@@ -55,18 +65,26 @@ export function resolveWeddingConfig(
       if (match) {
         monogram = `${match[1].toUpperCase()} & ${match[2].toUpperCase()}`;
       } else {
-        monogram = clean.slice(0, 2).toUpperCase();
+        monogram = clean.slice(0, 1).toUpperCase();
       }
     }
   }
+
+  const isJaseph = coupleNames.toLowerCase().includes("jaseph");
+  const resolvedDate = override?.weddingDate ?? (isJaseph ? "October 1–2, 2026" : (eventDate ?? DEFAULT_WEDDING_CONFIG.weddingDate));
 
   return {
     ...DEFAULT_WEDDING_CONFIG,
     ...override,
     coupleNames,
     monogram,
-    weddingDate: override?.weddingDate ?? eventDate ?? DEFAULT_WEDDING_CONFIG.weddingDate,
+    weddingDate: resolvedDate,
+    days: override?.days ?? DEFAULT_WEDDING_CONFIG.days,
     guestName: session?.guestName ?? override?.guestName,
     requiresOnlineCapture: session?.requiresOnlineCapture ?? override?.requiresOnlineCapture ?? DEFAULT_WEDDING_CONFIG.requiresOnlineCapture,
+    time: override?.time ?? DEFAULT_WEDDING_CONFIG.time,
+    location: override?.location ?? DEFAULT_WEDDING_CONFIG.location,
+    villa: override?.villa ?? DEFAULT_WEDDING_CONFIG.villa,
+    whatToBring: override?.whatToBring ?? DEFAULT_WEDDING_CONFIG.whatToBring,
   };
 }

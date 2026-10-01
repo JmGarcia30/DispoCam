@@ -504,14 +504,52 @@ html, body {
     transition-duration: 0.01ms !important;
   }
 }
-/* Minimal first-use identity step; intentionally follows the existing keepsake styling. */
-.guest-name-step { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--wedding-bg); }
-.guest-name-card { width: min(100%, 380px); padding: 32px 24px; border-radius: 18px; color: var(--wedding-text-primary); }
-.guest-name-card h1 { margin: 0 0 20px; font: 600 28px/1.2 var(--font-serif); }
-.guest-name-card input { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid rgba(195,153,107,.55); border-radius: 8px; font-size: 16px; }
-.guest-name-card p { color: var(--wedding-text-muted); font-size: 13px; line-height: 1.45; }
-.guest-name-card [role="alert"] { color: #9d332c; }
-.guest-name-card button { width: 100%; padding: 12px; border: 0; border-radius: 8px; background: #201e1c; color: #faf8f5; font-weight: 600; }
+/* First-use identity step in gothic party aesthetic */
+.guest-name-step {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: #060507;
+  background-image:
+    radial-gradient(ellipse 90% 40% at 50% 8%, rgba(165, 20, 32, 0.28) 0%, rgba(10, 8, 12, 0) 75%),
+    radial-gradient(circle 600px at 50% 92%, rgba(110, 12, 20, 0.2) 0%, rgba(6, 5, 7, 0) 70%);
+}
+.guest-name-card {
+  width: min(100%, 418px);
+  padding: 34px 24px 28px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #151319 0%, #0d0c11 48%, #08080b 100%);
+  border: 1px solid rgba(160, 155, 175, 0.24);
+  box-shadow: 0 28px 64px -12px rgba(0, 0, 0, 0.95), 0 0 40px rgba(160, 20, 32, 0.18);
+  color: #FAF7F2;
+}
+.guest-name-card h1 { margin: 0 0 16px; font: 600 28px/1.2 var(--font-serif); color: #FAF7F2; }
+.guest-name-card input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 14px 16px;
+  background-color: #0D0C12;
+  border: 1px solid rgba(185, 25, 40, 0.45);
+  border-radius: 10px;
+  color: #FAF7F2;
+  font-size: 16px;
+  outline: none;
+}
+.guest-name-card p { color: #8E8B98; font-size: 13px; line-height: 1.45; }
+.guest-name-card [role="alert"] { color: #FF4A5E; }
+.guest-name-card button {
+  width: 100%;
+  padding: 15px 24px;
+  border: 1px solid rgba(195, 30, 48, 0.55);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #221115 0%, #14090c 100%);
+  color: #FAF7F2;
+  font-weight: 650;
+  font-size: 15px;
+  cursor: pointer;
+}
 
 /* Functional admin V1 */
 .admin-root { min-height: 100vh; background: #f5f5f3; color: #20201e; font-family: var(--font-sans); }
@@ -544,11 +582,472 @@ html, body {
 .admin-pass { margin-top: 14px; padding-top: 14px; border-top: 1px solid #e3e2dd; }.admin-pass-stats,.admin-pass-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }.admin-pass-actions { margin-top: 12px; }.admin-pass-actions button { border: 1px solid #bbb9b1; border-radius: 6px; padding: 7px 10px; background: white; cursor: pointer; }.admin-pass-actions button.danger { color: #a12019; border-color: #dba8a4; }.admin-pass-actions details { flex-basis: 100%; padding: 10px; background: #f4f2ee; border-radius: 7px; }.admin-pass-actions summary { cursor: pointer; font-weight: 700; }
 @media (max-width: 680px) { .admin-photo-viewer { grid-template-columns: 1fr; }.admin-photo-viewer > img { max-height: 60vh; }.admin-title-row,.admin-section-heading { align-items: flex-start; flex-direction: column; }.admin-page { width: min(100% - 24px,1180px); padding-top: 20px; }.admin-recent-grid,.admin-photo-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 
-.join-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--wedding-bg); color: var(--wedding-text-primary); }
-.join-card { width: min(100%, 410px); box-sizing: border-box; padding: 34px 26px; border-radius: 18px; box-shadow: 0 20px 48px rgba(0,0,0,.55); }
-.join-card h1 { margin: 0 0 26px; font: 600 34px/1.05 var(--font-serif); }.join-card h2 { margin: 0 0 14px; font: 600 24px/1.2 var(--font-serif); }
-.join-eyebrow { margin: 0 0 8px; color: #8a633f !important; font: 700 11px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; }
-.join-card input { box-sizing: border-box; width: 100%; padding: 12px; border: 1px solid rgba(195,153,107,.6); border-radius: 8px; font: 16px var(--font-sans); }.join-card p { color: var(--wedding-text-muted); font-size: 13px; line-height: 1.5; }
-.join-card button { width: 100%; margin-top: 8px; padding: 12px; border: 0; border-radius: 8px; background: #201e1c; color: #faf8f5; font-weight: 700; cursor: pointer; }.join-card button:disabled { opacity: .6; cursor: wait; }.join-card .join-error { color: #982a23; }
+.join-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--sat) + 24px) 16px calc(var(--sab) + 28px);
+  background-color: #060507;
+  background-image:
+    radial-gradient(ellipse 90% 40% at 50% 8%, rgba(165, 20, 32, 0.28) 0%, rgba(10, 8, 12, 0) 75%),
+    radial-gradient(circle 600px at 50% 92%, rgba(110, 12, 20, 0.2) 0%, rgba(6, 5, 7, 0) 70%);
+  color: #FAF7F2;
+}
+.join-card {
+  width: min(100%, 418px);
+  box-sizing: border-box;
+  padding: 34px 24px 28px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #151319 0%, #0d0c11 48%, #08080b 100%);
+  border: 1px solid rgba(160, 155, 175, 0.24);
+  box-shadow:
+    0 28px 64px -12px rgba(0, 0, 0, 0.95),
+    0 0 40px rgba(160, 20, 32, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  position: relative;
+  text-align: center;
+}
+.join-card h1 {
+  margin: 0 0 6px;
+  font: 700 36px/1.08 var(--font-serif);
+  color: #FAF7F2;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 20px rgba(185, 25, 40, 0.7);
+}
+.join-card h2 {
+  margin: 18px 0 6px;
+  font: 600 22px/1.2 var(--font-serif);
+  color: #FAF7F2;
+  text-align: left;
+}
+.join-eyebrow {
+  margin: 0 0 12px;
+  color: #ADA9BD !important;
+  font: 700 11px/1 var(--font-sans);
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+}
+.join-card input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 14px 16px;
+  background-color: #0D0C12;
+  border: 1px solid rgba(185, 25, 40, 0.45);
+  border-radius: 10px;
+  color: #FAF7F2;
+  font-size: 16px;
+  outline: none;
+}
+.join-card input:focus {
+  border-color: rgba(255, 60, 80, 0.75);
+  box-shadow: 0 0 12px rgba(220, 30, 45, 0.35);
+}
+.join-card p {
+  color: #8E8B98;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+}
+.join-card button {
+  width: 100%;
+  margin-top: 14px;
+  padding: 15px 24px;
+  border: 1px solid rgba(195, 30, 48, 0.55);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #221115 0%, #14090c 100%);
+  color: #FAF7F2;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.7), 0 0 20px rgba(180, 25, 40, 0.35);
+  transition: transform 0.12s ease, border-color 0.15s ease;
+}
+.join-card button:hover:not(:disabled) {
+  border-color: rgba(235, 45, 65, 0.8);
+  transform: translateY(-1px);
+}
+.join-card button:disabled { opacity: 0.6; cursor: wait; }
+.join-card .join-error {
+  color: #FF4A5E;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(255, 60, 80, 0.1);
+  border: 1px solid rgba(255, 60, 80, 0.3);
+  border-radius: 6px;
+}
 .admin-settings-grid { display: grid; gap: 18px; }.admin-settings-grid label { display: grid; gap: 7px; font-weight: 650; }.admin-settings-grid input { padding: 10px; border: 1px solid #c9c8c2; border-radius: 7px; font: inherit; }.admin-settings-actions { display: flex; flex-wrap: wrap; gap: 10px; }.admin-join-url { display: grid; align-content: start; gap: 10px; padding: 14px; border-radius: 8px; background: #f1efe9; }.admin-join-url code { overflow-wrap: anywhere; user-select: all; }.admin-join-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 18px; }.admin-qr-panel { display: grid; justify-items: center; gap: 10px; padding: 14px; border: 1px solid #e2dfd7; border-radius: 8px; background: #fff; }.admin-qr-panel img { display: block; width: min(240px, 60vw); height: auto; image-rendering: pixelated; }.admin-qr-panel span { width: 240px; min-height: 100px; display: grid; place-items: center; color: #666; font-size: 13px; }
 @media (max-width: 680px) { .admin-join-tools { grid-template-columns: 1fr; }.admin-qr-panel { justify-self: start; } }
+
+/* ==========================================================================
+   GOTHIC HALLOWEEN BIRTHDAY PARTY INVITATION / FLYER
+   ========================================================================== */
+
+.party-invitation-container {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--sat) + 24px) 16px calc(var(--sab) + 28px);
+  background-color: #060507;
+  background-image:
+    radial-gradient(ellipse 90% 40% at 50% 8%, rgba(165, 20, 32, 0.28) 0%, rgba(10, 8, 12, 0) 75%),
+    radial-gradient(circle 600px at 50% 92%, rgba(110, 12, 20, 0.2) 0%, rgba(6, 5, 7, 0) 70%),
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.02) 1px, transparent 0);
+  background-size: 100% 100%, 100% 100%, 4px 4px;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Atmospheric candlelight / fog overlay */
+.party-invitation-container::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, transparent 60%, rgba(4, 3, 5, 0.75) 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.party-flyer-card {
+  width: 100%;
+  max-width: 418px;
+  position: relative;
+  z-index: 2;
+  border-radius: 16px;
+  padding: 34px 24px 28px;
+  background: linear-gradient(180deg, #151319 0%, #0d0c11 48%, #08080b 100%);
+  border: 1px solid rgba(160, 155, 175, 0.24);
+  box-shadow:
+    0 28px 64px -12px rgba(0, 0, 0, 0.95),
+    0 0 40px rgba(160, 20, 32, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Inner gothic hairline border */
+.party-card-inner-border {
+  position: absolute;
+  inset: 8px;
+  border: 1px solid rgba(185, 25, 40, 0.3);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+/* Ornate gothic corner brackets */
+.party-corner {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  border-color: rgba(200, 195, 210, 0.45);
+}
+.party-corner-tl { top: 12px; left: 12px; border-top: 1.5px solid; border-left: 1.5px solid; }
+.party-corner-tr { top: 12px; right: 12px; border-top: 1.5px solid; border-right: 1.5px solid; }
+.party-corner-bl { bottom: 12px; left: 12px; border-bottom: 1.5px solid; border-left: 1.5px solid; }
+.party-corner-br { bottom: 12px; right: 12px; border-bottom: 1.5px solid; border-right: 1.5px solid; }
+
+/* Top party crest / gothic star emblem */
+.party-crest-symbol {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  filter: drop-shadow(0 0 12px rgba(220, 30, 45, 0.45));
+}
+
+/* Top eyebrow line */
+.party-eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #ADA9BD;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+/* Hero Title: JASEPH'S */
+.party-hero-name {
+  font-family: var(--font-serif);
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: #FAF7F2;
+  margin: 0 0 6px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-shadow:
+    0 0 24px rgba(185, 25, 40, 0.75),
+    0 2px 6px rgba(0, 0, 0, 0.95);
+}
+
+@media (max-width: 360px) {
+  .party-hero-name {
+    font-size: 35px;
+  }
+}
+
+/* Hero Subtitle: BIRTHDAY CELEBRATION */
+.party-hero-subtitle {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #C2BFD0;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+/* Theme Badge: HALLOWEEN PARTY */
+.party-theme-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(160, 20, 32, 0.22);
+  border: 1px solid rgba(225, 40, 58, 0.5);
+  box-shadow: 0 0 16px rgba(180, 25, 40, 0.25), inset 0 0 10px rgba(140, 15, 25, 0.3);
+  padding: 6px 16px;
+  border-radius: 9999px;
+  margin-bottom: 12px;
+}
+
+.party-theme-label {
+  font-family: var(--font-sans);
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #D69CA1;
+  font-weight: 700;
+}
+
+.party-theme-name {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #FFF2F2;
+  font-weight: 750;
+}
+
+/* Costume Notice: COSTUME IS MANDATORY */
+.party-costume-notice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
+  background: rgba(255, 60, 80, 0.09);
+  border: 1px dashed rgba(255, 75, 95, 0.45);
+  border-radius: 6px;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #FF5A6E;
+  font-weight: 700;
+  margin-bottom: 18px;
+}
+
+/* VIP Guest Name badge if present */
+.party-vip-guest {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ADA9BA;
+  margin-bottom: 12px;
+}
+.party-vip-guest strong {
+  color: #FAF6F0;
+  font-weight: 700;
+}
+
+/* Gothic decorative divider with star */
+.party-gothic-divider {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 6px 0 18px;
+}
+.party-divider-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(185, 25, 40, 0.45) 50%, transparent 100%);
+}
+.party-divider-glyph {
+  color: #B51E2E;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 4px rgba(220, 30, 45, 0.5));
+}
+
+/* Party Welcome Message / Quote */
+.party-welcome-quote {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-style: italic;
+  color: #D2CEC7;
+  line-height: 1.45;
+  margin-bottom: 20px;
+  max-width: 320px;
+}
+
+/* Event Details Grid */
+.party-details-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.party-detail-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  padding: 10px 12px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.party-detail-card:hover {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: rgba(185, 25, 40, 0.4);
+}
+
+.party-detail-full {
+  grid-column: 1 / -1;
+  border-left: 2px solid #A51A2A;
+}
+
+.party-detail-label {
+  font-family: var(--font-sans);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8E8B98;
+  font-weight: 700;
+}
+
+.party-detail-value {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 650;
+  color: #F2EFEA;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+}
+
+/* Shots Remaining tag */
+.party-shots-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(180, 25, 40, 0.15);
+  border: 1px solid rgba(210, 35, 50, 0.35);
+  border-radius: 8px;
+  padding: 7px 16px;
+  margin-bottom: 20px;
+}
+
+.party-shots-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #FF3B50;
+  box-shadow: 0 0 8px #FF3B50;
+  animation: party-pulse 2s infinite ease-in-out;
+}
+
+@keyframes party-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.party-shots-count {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: #FAF7F2;
+}
+
+.party-shots-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 650;
+  color: #C2BED0;
+}
+
+/* Primary Action: Open Camera button */
+.party-enter-btn {
+  width: 100%;
+  padding: 16px 24px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #221115 0%, #14090c 100%);
+  color: #FAF7F2;
+  border: 1px solid rgba(195, 30, 48, 0.55);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.7),
+    0 0 20px rgba(180, 25, 40, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.party-enter-btn:hover:not(:disabled) {
+  border-color: rgba(235, 45, 65, 0.8);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.8),
+    0 0 26px rgba(210, 30, 50, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.party-enter-btn:active:not(:disabled) {
+  transform: scale(0.985);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.8);
+}
+
+.party-enter-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* Subtext */
+.party-subtext {
+  margin-top: 16px;
+  font-size: 12px;
+  color: #8C8996;
+  line-height: 1.45;
+  max-width: 290px;
+}
+

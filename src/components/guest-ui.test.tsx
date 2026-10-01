@@ -47,6 +47,48 @@ describe("Guest-facing UI Components", () => {
       expect(html).toContain("Open Camera");
       expect(html).toContain("No app needed. Your photos will upload automatically.");
     });
+
+    it("renders Jaseph's gothic Halloween birthday party flyer with required party details and no wedding language", () => {
+      const config = resolveWeddingConfig({
+        weddingName: "Jaseph's Birthday",
+      });
+      const html = renderToStaticMarkup(
+        <WelcomeScreen
+          wedding={config}
+          shotsRemaining={10}
+          onEnterCamera={() => {}}
+        />,
+      );
+
+      // Verify birthday party hierarchy
+      expect(html).toContain("JASEPH&#x27;S");
+      expect(html).toContain("BIRTHDAY CELEBRATION");
+      expect(html).toContain("HALLOWEEN PARTY");
+      expect(html).toContain("COSTUME IS MANDATORY");
+
+      // Verify real Jaseph party details
+      expect(html).toContain("DATE");
+      expect(html).toContain("TIME");
+      expect(html).toContain("VILLA");
+      expect(html).toContain("LOCATION");
+      expect(html).toContain("WHAT TO BRING");
+      expect(html).toContain("Casa de Elvira");
+      expect(html).toContain("October 1–2, 2026");
+      expect(html).toContain("Thursday–Friday");
+      expect(html).toContain("6:00 PM");
+      expect(html).toContain("Alak");
+      expect(html).toContain("Block 12, Lot 19 Mercury Street");
+      expect(html).toContain("San Fernando, Pampanga");
+
+      // Verify NO wedding language
+      expect(html.toLowerCase()).not.toContain("wedding");
+      expect(html.toLowerCase()).not.toContain("bridal");
+      expect(html.toLowerCase()).not.toContain("groom");
+      expect(html.toLowerCase()).not.toContain("ceremony");
+      expect(html.toLowerCase()).not.toContain("save the date");
+      expect(html.toLowerCase()).not.toContain("cordially invited");
+      expect(html.toLowerCase()).not.toContain("together with their families");
+    });
   });
 
   describe("Screen 2 — Zero-Shot / RollFinished State", () => {

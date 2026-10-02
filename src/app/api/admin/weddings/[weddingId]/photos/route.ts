@@ -6,7 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 export const runtime = "nodejs";
 
 const querySchema = z.object({
-  cursor: z.string().datetime().optional(),
+  cursor: z.string().datetime({ offset: true }).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   status: z.enum(["pending", "approved", "rejected"]).optional(),
   guestId: z.uuid().optional(),
